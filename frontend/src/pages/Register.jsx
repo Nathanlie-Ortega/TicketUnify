@@ -67,17 +67,59 @@ export default function Register() {
 
     setLoading(true);
     try {
-      await signup(formData.email, formData.password, formData.fullName);
-      toast.success('Account created successfully!');
-      navigate('/dashboard');
+      console.log('🔄 Starting signup process...');
+      
+      // Call the signup function from AuthContext
+      const result = await signup(formData.email, formData.password, formData.fullName);
+      
+      console.log('✅ Signup successful:', result);
+      
+      // Show success message
+      toast.success('Account created successfully! Welcome to TicketUnify!');
+      
+      // Navigate to dashboard after successful registration
+      navigate('/dashboard', { replace: true });
+      
     } catch (error) {
-      console.error('Registration error:', error);
-      if (error.code === 'auth/email-already-in-use') {
-        toast.error('An account with this email already exists');
-      } else if (error.code === 'auth/weak-password') {
-        toast.error('Password is too weak');
-      } else {
-        toast.error('Failed to create account. Please try again.');
+      console.error('❌ Registration error:', error);
+      
+      // Better error handling
+      let errorMessage = 'Failed to create account. Please try again.';
+      
+      if (error?.code) {
+        switch (error.code) {
+          case 'auth/email-already-in-use':
+            errorMessage = 'An account with this email already exists. Try signing in instead.';
+            break;
+          case 'auth/weak-password':
+            errorMessage = 'Password is too weak. Please choose a stronger password.';
+            break;
+          case 'auth/invalid-email':
+            errorMessage = 'Please enter a valid email address.';
+            break;
+          case 'auth/operation-not-allowed':
+            errorMessage = 'Email/password accounts are not enabled. Please contact support.';
+            break;
+          case 'auth/network-request-failed':
+            errorMessage = 'Network error. Please check your connection and try again.';
+            break;
+          default:
+            errorMessage = `Registration failed: ${error.message || 'Unknown error'}`;
+        }
+      } else if (error?.message) {
+        errorMessage = error.message;
+      }
+      
+      toast.error(errorMessage);
+      
+      // If it's an "already exists" error, suggest going to login
+      if (error?.code === 'auth/email-already-in-use') {
+        setTimeout(() => {
+          toast('You can sign in with your existing account', {
+            icon: '💡',
+            duration: 4000
+          });
+        }, 2000);
       }
     } finally {
       setLoading(false);
@@ -105,10 +147,10 @@ export default function Register() {
               type="text"
               value={formData.fullName}
               onChange={handleChange}
-              className={`w-full px-3 py-2 border rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+              className={`w-full px-3 py-2 border rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-800 dark:text-white ${
                 errors.fullName 
                   ? 'border-red-500 focus:border-red-500 focus:ring-red-500' 
-                  : 'border-gray-800 dark:border-gray-300 focus:border-blue-500'
+                  : 'border-gray-300 dark:border-gray-600 focus:border-blue-500'
               }`}
               placeholder="Enter your full name"
               required
@@ -128,10 +170,10 @@ export default function Register() {
               type="email"
               value={formData.email}
               onChange={handleChange}
-              className={`w-full px-3 py-2 border rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+              className={`w-full px-3 py-2 border rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-800 dark:text-white ${
                 errors.email 
                   ? 'border-red-500 focus:border-red-500 focus:ring-red-500' 
-                  : 'border-gray-800 dark:border-gray-300 focus:border-blue-500'
+                  : 'border-gray-300 dark:border-gray-600 focus:border-blue-500'
               }`}
               placeholder="Enter your email"
               required
@@ -151,10 +193,10 @@ export default function Register() {
               type="password"
               value={formData.password}
               onChange={handleChange}
-              className={`w-full px-3 py-2 border rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+              className={`w-full px-3 py-2 border rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-800 dark:text-white ${
                 errors.password 
                   ? 'border-red-500 focus:border-red-500 focus:ring-red-500' 
-                  : 'border-gray-800 dark:border-gray-300 focus:border-blue-500'
+                  : 'border-gray-300 dark:border-gray-600 focus:border-blue-500'
               }`}
               placeholder="Create a password"
               required
@@ -174,10 +216,10 @@ export default function Register() {
               type="password"
               value={formData.confirmPassword}
               onChange={handleChange}
-              className={`w-full px-3 py-2 border rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+              className={`w-full px-3 py-2 border rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-800 dark:text-white ${
                 errors.confirmPassword 
                   ? 'border-red-500 focus:border-red-500 focus:ring-red-500' 
-                  : 'border-gray-800 dark:border-gray-300 focus:border-blue-500'
+                  : 'border-gray-300 dark:border-gray-600 focus:border-blue-500'
               }`}
               placeholder="Confirm your password"
               required
@@ -193,8 +235,18 @@ export default function Register() {
             className="w-full"
             size="lg"
           >
-            Create Account
+            {loading ? 'Creating Account...' : 'Create Account'}
           </Button>
+
+          {/* Terms and Privacy */}
+          <div className="text-center">
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              By creating an account, you agree to our{' '}
+              <a href="#" className="text-blue-600 dark:text-blue-400 hover:underline">Terms of Service</a>
+              {' '}and{' '}
+              <a href="#" className="text-blue-600 dark:text-blue-400 hover:underline">Privacy Policy</a>
+            </p>
+          </div>
 
           <div className="text-center space-y-2">
             <p className="text-sm text-gray-600 dark:text-gray-300">

@@ -1,21 +1,8 @@
 // src/contexts/TicketContext.jsx
-import React, { createContext, useContext, useState } from 'react';
-import { 
-  collection, 
-  doc, 
-  setDoc, 
-  getDoc, 
-  query, 
-  where, 
-  getDocs,
-  updateDoc,
-  orderBy,
-  limit
-} from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { db, storage } from '../utils/firebase';
+import React, { createContext, useContext, useState, useCallback } from 'react';
+import { collection, query, where, getDocs, doc, updateDoc } from 'firebase/firestore';
+import { db } from '../utils/firebase';
 import { useAuth } from './AuthContext';
-import toast from 'react-hot-toast';
 
 const TicketContext = createContext();
 
@@ -32,185 +19,169 @@ export function TicketProvider({ children }) {
   const [loading, setLoading] = useState(false);
   const { currentUser } = useAuth();
 
-  // Generate unique ticket ID
-  function generateTicketId() {
-    return `TICKET-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
-  }
-
-  // Upload avatar image to Firebase Storage
-  async function uploadAvatar(file, ticketId) {
-    try {
-      const avatarRef = ref(storage, `avatars/${ticketId}-${file.name}`);
-      const snapshot = await uploadBytes(avatarRef, file);
-      return await getDownloadURL(snapshot.ref);
-    } catch (error) {
-      console.error('Error uploading avatar:', error);
-      throw error;
-    }
-  }
-
-  // Create new ticket
-  async function createTicket(ticketData, avatarFile = null) {
+  // Get tickets for the current user
+  const getUserTickets = useCallback(async () => {
     if (!currentUser) {
-      throw new Error('User must be authenticated to create tickets');
+      console.log('❌ No current user - cannot fetch tickets');
+      setTickets([]);
+      setLoading(false);
+      return;
     }
 
-    setLoading(true);
     try {
-      const ticketId = generateTicketId();
-      let avatarUrl = null;
-
-      // Upload avatar if provided
-      if (avatarFile) {
-        avatarUrl = await uploadAvatar(avatarFile, ticketId);
+      setLoading(true);
+      console.log('🔄 Fetching tickets for user:', currentUser.uid);
+      console.log('🔄 User email:', currentUser.email);
+      
+      // Query tickets where userId matches current user OR email matches current user
+      const ticketsRef = collection(db, 'tickets');
+      const q = query(
+        ticketsRef,
+        where('userId', '==', currentUser.uid)
+      );
+      
+      const querySnapshot = await getDocs(q);
+      
+      const userTickets = [];
+      querySnapshot.forEach((doc) => {
+        const ticketData = doc.data();
+        userTickets.push({
+          id: doc.id,
+          ...ticketData
+        });
+        console.log('📋 Found ticket:', doc.id, ticketData);
+      });
+      
+      console.log('✅ Fetched', userTickets.length, 'tickets for user');
+      
+      // If no tickets found with userId, try to find by email
+      if (userTickets.length === 0 && currentUser.email) {
+        console.log('🔄 No tickets with userId, searching by email...');
+        const emailQuery = query(
+          ticketsRef,
+          where('email', '==', currentUser.email)
+        );
+        
+        const emailSnapshot = await getDocs(emailQuery);
+        console.log('📧 Found', emailSnapshot.size, 'tickets by email');
+        
+        emailSnapshot.forEach((doc) => {
+          const ticketData = doc.data();
+          userTickets.push({
+            id: doc.id,
+            ...ticketData
+          });
+          console.log('📋 Found ticket by email:', doc.id, ticketData);
+        });
       }
-
-      const ticket = {
-        id: ticketId,
-        userId: currentUser.uid,
-        userName: ticketData.fullName,
-        userEmail: ticketData.email,
-        eventName: ticketData.eventName,
-        eventDate: ticketData.eventDate,
-        eventLocation: ticketData.eventLocation,
-        ticketType: ticketData.ticketType || 'Standard',
-        avatarUrl,
-        qrCode: ticketId, // QR code contains the ticket ID
-        checkedIn: false,
-        checkedInAt: null,
-        createdAt: new Date().toISOString(),
-        status: 'active'
-      };
-
-      // Save to Firestore
-      await setDoc(doc(db, 'tickets', ticketId), ticket);
       
-      // Send email with ticket (you'll implement this in the backend)
-      await sendTicketEmail(ticket);
+      setTickets(userTickets);
       
-      toast.success('Ticket created successfully!');
-      return ticket;
     } catch (error) {
-      console.error('Error creating ticket:', error);
-      toast.error('Failed to create ticket');
-      throw error;
+      console.error('❌ Error fetching user tickets:', error);
+      setTickets([]);
     } finally {
       setLoading(false);
     }
-  }
+  }, [currentUser]);
 
-  // Get ticket by ID
-  async function getTicket(ticketId) {
+  // Get a specific ticket by ID
+  const getTicket = async (ticketId) => {
     try {
-      const ticketDoc = await getDoc(doc(db, 'tickets', ticketId));
-      if (ticketDoc.exists()) {
-        return ticketDoc.data();
+      console.log('🔄 Getting ticket:', ticketId);
+      
+      // For now, just find in current tickets array
+      const ticket = tickets.find(t => t.id === ticketId || t.ticketId === ticketId);
+      
+      if (ticket) {
+        console.log('✅ Found ticket:', ticket);
+        return ticket;
+      } else {
+        console.log('❌ Ticket not found');
+        return null;
       }
-      return null;
     } catch (error) {
-      console.error('Error fetching ticket:', error);
-      throw error;
+      console.error('❌ Error getting ticket:', error);
+      return null;
     }
-  }
+  };
 
-  // Get user's tickets
-  async function getUserTickets() {
-    if (!currentUser) return [];
-
+  // Check in a ticket
+  const checkInTicket = async (ticketId) => {
     try {
+      console.log('🔄 Checking in ticket:', ticketId);
+      
+      // Find the ticket document in Firebase
+      const ticketsRef = collection(db, 'tickets');
       const q = query(
-        collection(db, 'tickets'),
-        where('userId', '==', currentUser.uid),
-        orderBy('createdAt', 'desc')
+        ticketsRef,
+        where('ticketId', '==', ticketId),
+        where('userId', '==', currentUser.uid)
       );
       
       const querySnapshot = await getDocs(q);
-      const userTickets = [];
-      querySnapshot.forEach((doc) => {
-        userTickets.push(doc.data());
-      });
       
-      setTickets(userTickets);
-      return userTickets;
-    } catch (error) {
-      console.error('Error fetching user tickets:', error);
-      throw error;
-    }
-  }
-
-  // Validate and check-in ticket
-  async function checkInTicket(ticketId) {
-    try {
-      const ticket = await getTicket(ticketId);
-      
-      if (!ticket) {
-        throw new Error('Ticket not found');
+      if (querySnapshot.empty) {
+        throw new Error('Ticket not found or not owned by user');
       }
       
-      if (ticket.checkedIn) {
-        throw new Error('Ticket already checked in');
-      }
-      
-      if (ticket.status !== 'active') {
-        throw new Error('Ticket is not active');
-      }
-
-      // Update ticket status
-      await updateDoc(doc(db, 'tickets', ticketId), {
+      // Update the first matching ticket
+      const ticketDoc = querySnapshot.docs[0];
+      await updateDoc(doc(db, 'tickets', ticketDoc.id), {
         checkedIn: true,
         checkedInAt: new Date().toISOString()
       });
-
-      toast.success('Ticket checked in successfully!');
-      return { ...ticket, checkedIn: true };
-    } catch (error) {
-      console.error('Error checking in ticket:', error);
-      toast.error(error.message);
-      throw error;
-    }
-  }
-
-  // Send ticket email (placeholder - implement with Cloud Functions)
-  async function sendTicketEmail(ticket) {
-    try {
-      // This would typically be a Cloud Function or API call
-      console.log('Sending ticket email for:', ticket.id);
-      // Implementation depends on your email service
-    } catch (error) {
-      console.error('Error sending email:', error);
-    }
-  }
-
-  // Get all tickets (admin only)
-  async function getAllTickets() {
-    try {
-      const q = query(
-        collection(db, 'tickets'),
-        orderBy('createdAt', 'desc'),
-        limit(100)
+      
+      // Update local state
+      setTickets(prevTickets => 
+        prevTickets.map(ticket => 
+          ticket.ticketId === ticketId 
+            ? { ...ticket, checkedIn: true, checkedInAt: new Date().toISOString() }
+            : ticket
+        )
       );
       
-      const querySnapshot = await getDocs(q);
-      const allTickets = [];
-      querySnapshot.forEach((doc) => {
-        allTickets.push(doc.data());
-      });
+      console.log('✅ Ticket checked in successfully');
+      return { success: true };
       
-      return allTickets;
     } catch (error) {
-      console.error('Error fetching all tickets:', error);
+      console.error('❌ Error checking in ticket:', error);
       throw error;
     }
-  }
+  };
+
+  // Add a new ticket to the context (when created)
+  const addTicket = (newTicket) => {
+    console.log('➕ Adding new ticket to context:', newTicket);
+    setTickets(prevTickets => [...prevTickets, newTicket]);
+  };
+
+  // Get tickets statistics
+  const getTicketStats = () => {
+    const totalTickets = tickets.length;
+    const checkedInTickets = tickets.filter(t => t.checkedIn).length;
+    const upcomingEvents = tickets.filter(t => {
+      if (!t.eventDate) return false;
+      const eventDate = new Date(t.eventDate);
+      const today = new Date();
+      return eventDate > today;
+    }).length;
+
+    return {
+      totalTickets,
+      checkedInTickets,
+      upcomingEvents
+    };
+  };
 
   const value = {
     tickets,
     loading,
-    createTicket,
-    getTicket,
     getUserTickets,
+    getTicket,
     checkInTicket,
-    getAllTickets
+    addTicket,
+    getTicketStats
   };
 
   return (

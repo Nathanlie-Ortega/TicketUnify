@@ -18,8 +18,8 @@ export default function Login() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  // Get the page user was trying to access before login
-  const from = location.state?.from?.pathname || '/dashboard';
+  // Get the page user was trying to access before login - DEFAULT TO HOME
+  const from = location.state?.from?.pathname || '/';
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -57,22 +57,54 @@ export default function Login() {
 
     setLoading(true);
     try {
+      console.log('🔄 Starting login process...');
+      
       await signin(formData.email, formData.password);
+      
+      console.log('✅ Login successful');
+      
       toast.success('Welcome back!');
+      
+      // Navigate to home page (not dashboard)
       navigate(from, { replace: true });
+      
     } catch (error) {
-      console.error('Login error:', error);
-      if (error.code === 'auth/user-not-found') {
-        toast.error('No account found with this email');
-      } else if (error.code === 'auth/wrong-password') {
-        toast.error('Incorrect password');
-      } else if (error.code === 'auth/invalid-email') {
-        toast.error('Invalid email address');
-      } else if (error.code === 'auth/too-many-requests') {
-        toast.error('Too many failed attempts. Please try again later.');
-      } else {
-        toast.error('Failed to sign in. Please try again.');
+      console.error('❌ Login error:', error);
+      
+      // Better error handling
+      let errorMessage = 'Failed to sign in. Please try again.';
+      
+      if (error?.code) {
+        switch (error.code) {
+          case 'auth/user-not-found':
+            errorMessage = 'No account found with this email address.';
+            break;
+          case 'auth/wrong-password':
+            errorMessage = 'Incorrect password. Please try again.';
+            break;
+          case 'auth/invalid-email':
+            errorMessage = 'Please enter a valid email address.';
+            break;
+          case 'auth/user-disabled':
+            errorMessage = 'This account has been disabled. Please contact support.';
+            break;
+          case 'auth/too-many-requests':
+            errorMessage = 'Too many failed attempts. Please try again later.';
+            break;
+          case 'auth/network-request-failed':
+            errorMessage = 'Network error. Please check your connection and try again.';
+            break;
+          case 'auth/invalid-credential':
+            errorMessage = 'Invalid email or password. Please check your credentials.';
+            break;
+          default:
+            errorMessage = `Login failed: ${error.message || 'Unknown error'}`;
+        }
+      } else if (error?.message) {
+        errorMessage = error.message;
       }
+      
+      toast.error(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -102,10 +134,10 @@ export default function Login() {
               autoComplete="email"
               value={formData.email}
               onChange={handleChange}
-              className={`w-full px-3 py-2 border rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+              className={`w-full px-3 py-2 border rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-800 dark:text-white ${
                 errors.email 
                   ? 'border-red-500 focus:border-red-500 focus:ring-red-500' 
-                  : 'border-gray-800 dark:border-gray-300 focus:border-blue-500'
+                  : 'border-gray-300 dark:border-gray-600 focus:border-blue-500'
               }`}
               placeholder="Enter your email"
               required
@@ -126,10 +158,10 @@ export default function Login() {
               autoComplete="current-password"
               value={formData.password}
               onChange={handleChange}
-              className={`w-full px-3 py-2 border rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+              className={`w-full px-3 py-2 border rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-800 dark:text-white ${
                 errors.password 
                   ? 'border-red-500 focus:border-red-500 focus:ring-red-500' 
-                  : 'border-gray-800 dark:border-gray-300 focus:border-blue-500'
+                  : 'border-gray-300 dark:border-gray-600 focus:border-blue-500'
               }`}
               placeholder="Enter your password"
               required
@@ -166,7 +198,7 @@ export default function Login() {
             className="w-full"
             size="lg"
           >
-            Sign In
+            {loading ? 'Signing In...' : 'Sign In'}
           </Button>
 
           {/* Divider */}

@@ -13,6 +13,7 @@ import AdminDashboard from './pages/AdminDashboard';
 import Scanner from './pages/Scanner';
 import Login from './pages/Login';
 import Register from './pages/Register';
+import TicketValidation from './pages/TicketValidation'; // NEW: Import validation page
 import NotFound from './pages/NotFound';
 import ProtectedRoute from './components/ProtectedRoute';
 
@@ -27,6 +28,9 @@ function AppContent() {
           <Route path="/" element={<Home />} />
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
+          
+          {/* NEW: Public Validation Route - Anyone can validate tickets via QR scan */}
+          <Route path="/validate/:ticketId" element={<TicketValidation />} />
           
           {/* Protected Routes */}
           <Route 

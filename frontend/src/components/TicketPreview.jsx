@@ -6,18 +6,27 @@ import html2canvas from 'html2canvas';
 import { Download, Calendar, MapPin, User, Ticket } from 'lucide-react';
 import { format } from 'date-fns';
 
-export default function TicketPreview({ ticketData, avatarFile, showDownload = false }) {
+export default function TicketPreview({ ticketData, avatarFile, showDownload = false, isGenerated = false }) {
   const ticketRef = useRef(null);
   const [qrCodeUrl, setQrCodeUrl] = useState('');
   const [avatarPreview, setAvatarPreview] = useState('');
   const [downloading, setDownloading] = useState(false);
 
-  // Generate QR code and avatar preview
-  React.useEffect(() => {
-    const generateQRCode = async () => {
-      try {
-        const ticketId = `TICKET-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-        const qr = await QRCode.toDataURL(ticketId, {
+React.useEffect(() => {
+  const generateQRCode = async () => {
+    try {
+      const actualTicketId = ticketData?.ticketId || ticketData?.id;
+      
+      if (actualTicketId && actualTicketId !== 'NO-ID-FOUND' && actualTicketId !== 'PREVIEW') {
+        console.log('🔄 Generating REAL QR for ticket ID:', actualTicketId);
+        
+        // OPTION 1: For localhost development
+        const validationUrl = `http://localhost:3000/validate/${actualTicketId}`;
+        
+        // OPTION 2: For production (uncomment when deployed)
+        // const validationUrl = `https://your-domain.com/validate/${actualTicketId}`;
+        
+        const qr = await QRCode.toDataURL(validationUrl, {
           width: 200,
           margin: 2,
           color: {
@@ -26,13 +35,26 @@ export default function TicketPreview({ ticketData, avatarFile, showDownload = f
           }
         });
         setQrCodeUrl(qr);
-      } catch (error) {
-        console.error('Error generating QR code:', error);
+      } else {
+        // For preview mode, show placeholder QR
+        console.log('🔄 Generating PREVIEW QR');
+        const placeholderQR = await QRCode.toDataURL('PREVIEW-MODE', {
+          width: 200,
+          margin: 2,
+          color: {
+            dark: '#9ca3af',
+            light: '#ffffff'
+          }
+        });
+        setQrCodeUrl(placeholderQR);
       }
-    };
+    } catch (error) {
+      console.error('Error generating QR code:', error);
+    }
+  };
 
-    generateQRCode();
-  }, [ticketData]);
+  generateQRCode();
+}, [ticketData?.ticketId, ticketData?.id, isGenerated]);
 
   React.useEffect(() => {
     if (avatarFile) {
@@ -45,10 +67,13 @@ export default function TicketPreview({ ticketData, avatarFile, showDownload = f
   }, [avatarFile]);
 
   const formatDate = (dateString) => {
-    if (!dateString) return '';
+    if (!dateString) return 'Event Date';
     try {
-      return format(new Date(dateString), 'EEEE, MMMM do, yyyy');
+      // Parse the date string correctly
+      const date = new Date(dateString + 'T00:00:00'); // Add time to prevent timezone issues
+      return format(date, 'EEEE, MMMM do, yyyy');
     } catch (error) {
+      console.error('Date formatting error:', error);
       return dateString;
     }
   };
@@ -76,7 +101,7 @@ export default function TicketPreview({ ticketData, avatarFile, showDownload = f
       const imgHeight = (canvas.height * imgWidth) / canvas.width;
       
       pdf.addImage(imgData, 'PNG', 10, 10, imgWidth, imgHeight);
-      pdf.save(`${ticketData.eventName || 'conference'}-ticket.pdf`);
+      pdf.save(`${ticketData?.eventName || 'conference'}-ticket.pdf`);
     } catch (error) {
       console.error('Error generating PDF:', error);
     } finally {
@@ -97,7 +122,7 @@ export default function TicketPreview({ ticketData, avatarFile, showDownload = f
       });
       
       const link = document.createElement('a');
-      link.download = `${ticketData.eventName || 'conference'}-ticket.png`;
+      link.download = `${ticketData?.eventName || 'conference'}-ticket.png`;
       link.href = canvas.toDataURL();
       link.click();
     } catch (error) {
@@ -112,7 +137,7 @@ export default function TicketPreview({ ticketData, avatarFile, showDownload = f
       <div className="text-center">
         <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Ticket Preview</h3>
         <p className="text-sm text-gray-600 dark:text-gray-400">
-          This is how your ticket will look
+          {isGenerated ? 'Your generated ticket' : 'This is how your ticket will look'}
         </p>
       </div>
 
@@ -142,11 +167,11 @@ export default function TicketPreview({ ticketData, avatarFile, showDownload = f
           <div className="flex items-start justify-between mb-4">
             <div className="flex-1">
               <h2 className="text-white font-bold text-lg leading-tight mb-1">
-                {ticketData.eventName || 'Event Name'}
+                {ticketData?.eventName || 'Event Name'}
               </h2>
               <div className="flex items-center text-blue-100 text-sm">
                 <Calendar size={14} className="mr-1" />
-                {formatDate(ticketData.eventDate) || 'Event Date'}
+                {formatDate(ticketData?.eventDate)}
               </div>
             </div>
             
@@ -171,18 +196,18 @@ export default function TicketPreview({ ticketData, avatarFile, showDownload = f
             <div>
               <p className="text-blue-100 text-xs uppercase tracking-wide mb-1">Attendee</p>
               <p className="text-white font-semibold text-lg">
-                {ticketData.fullName || 'Your Name'}
+                {ticketData?.fullName || 'Your Name'}
               </p>
             </div>
 
             <div className="flex items-center text-blue-100 text-sm">
               <MapPin size={14} className="mr-2 flex-shrink-0" />
-              <span>{ticketData.eventLocation || 'Event Location'}</span>
+              <span>{ticketData?.location || 'Event Location'}</span>
             </div>
 
             <div className="flex items-center text-blue-100 text-sm">
               <Ticket size={14} className="mr-2 flex-shrink-0" />
-              <span>{ticketData.ticketType || 'Standard'} Ticket</span>
+              <span>{ticketData?.ticketType || 'Standard'} Ticket</span>
             </div>
           </div>
 
@@ -194,7 +219,11 @@ export default function TicketPreview({ ticketData, avatarFile, showDownload = f
                   Ticket ID
                 </p>
                 <p className="text-white font-mono text-sm">
-                  #{Math.random().toString(36).substr(2, 8).toUpperCase()}
+                  {/* SHOW ticket ID if downloads are on (generated) OR if ticket ID exists */}
+                  {(showDownload && (ticketData?.ticketId || ticketData?.id)) 
+                    ? `#${ticketData.ticketId || ticketData.id}` 
+                    : '#PREVIEW'
+                  }
                 </p>
               </div>
               
@@ -211,13 +240,13 @@ export default function TicketPreview({ ticketData, avatarFile, showDownload = f
           </div>
         </div>
 
-        {/* Decorative Elements */}
-        <div className="absolute top-1/2 -left-4 w-8 h-8 bg-gray-50 rounded-full transform -translate-y-1/2"></div>
-        <div className="absolute top-1/2 -right-4 w-8 h-8 bg-gray-50 rounded-full transform -translate-y-1/2"></div>
+        {/* Decorative Elements - FIXED FOR DARK MODE */}
+        <div className="absolute top-1/2 -left-4 w-8 h-8 bg-gray-50 dark:bg-gray-800 rounded-full transform -translate-y-1/2"></div>
+        <div className="absolute top-1/2 -right-4 w-8 h-8 bg-gray-50 dark:bg-gray-800 rounded-full transform -translate-y-1/2"></div>
       </div>
 
       {/* Download Buttons */}
-      {showDownload && (
+      {showDownload && isGenerated && (
         <div className="flex gap-3 justify-center">
           <button
             onClick={downloadAsPDF}
@@ -230,7 +259,7 @@ export default function TicketPreview({ ticketData, avatarFile, showDownload = f
           <button
             onClick={downloadAsImage}
             disabled={downloading}
-            className="flex items-center gap-2 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
+            className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-white border-2 border-blue-600 text-blue-600 rounded-lg hover:bg-blue-50 dark:hover:bg-gray-100 transition-colors disabled:opacity-50"
           >
             <Download size={16} />
             {downloading ? 'Generating...' : 'Download PNG'}

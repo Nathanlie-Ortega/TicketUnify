@@ -7,14 +7,18 @@ import { format } from 'date-fns';
 
 export default function Dashboard() {
   const { currentUser, userProfile } = useAuth();
-  const { tickets, getUserTickets, loading } = useTickets();
+  const { tickets, getUserTickets, loading, getTicketStats } = useTickets();
   const [activeTab, setActiveTab] = useState('tickets');
 
   useEffect(() => {
     if (currentUser) {
+      console.log('🔄 Dashboard: Fetching tickets for user:', currentUser.uid);
       getUserTickets();
     }
-  }, [currentUser]);
+  }, [currentUser]); // Removed getUserTickets from dependencies
+
+  // Get stats from ticket context
+  const stats = getTicketStats();
 
   const formatDate = (dateString) => {
     if (!dateString) return '';
@@ -58,7 +62,7 @@ export default function Dashboard() {
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Total Tickets</p>
-              <p className="text-2xl font-bold text-gray-900 dark:text-white">{tickets.length}</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-white">{stats.totalTickets}</p>
             </div>
           </div>
         </div>
@@ -70,9 +74,7 @@ export default function Dashboard() {
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Checked In</p>
-              <p className="text-2xl font-bold text-gray-900 dark:text-white">
-                {tickets.filter(t => t.checkedIn).length}
-              </p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-white">{stats.checkedInTickets}</p>
             </div>
           </div>
         </div>
@@ -84,13 +86,28 @@ export default function Dashboard() {
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-600 dark:text-gray-400">Upcoming Events</p>
-              <p className="text-2xl font-bold text-gray-900 dark:text-white">
-                {tickets.filter(t => new Date(t.eventDate) > new Date()).length}
-              </p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-white">{stats.upcomingEvents}</p>
             </div>
           </div>
         </div>
       </div>
+
+      {/* Debug Info - Remove this after testing */}
+      {process.env.NODE_ENV === 'development' && (
+        <div className="mb-4 p-4 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
+          <h3 className="font-semibold text-yellow-900 dark:text-yellow-100 mb-2">Debug Info:</h3>
+          <div className="text-sm text-yellow-800 dark:text-yellow-200">
+            <p>Current User ID: {currentUser?.uid}</p>
+            <p>Tickets Found: {tickets.length}</p>
+            <p>Loading: {loading ? 'Yes' : 'No'}</p>
+            {tickets.length > 0 && (
+              <div className="mt-2">
+                <p>Ticket IDs: {tickets.map(t => t.ticketId || t.id).join(', ')}</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="border-b border-gray-200 dark:border-gray-700 mb-6">
@@ -163,7 +180,7 @@ export default function Dashboard() {
                           </div>
                           <div className="flex items-center gap-2">
                             <MapPin size={16} />
-                            <span>{ticket.eventLocation}</span>
+                            <span>{ticket.location}</span>
                           </div>
                           <div className="flex items-center gap-2">
                             <Ticket size={16} />
@@ -175,7 +192,7 @@ export default function Dashboard() {
                       <div className="ml-6 text-right">
                         <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">Ticket ID</p>
                         <p className="font-mono text-sm font-medium text-gray-900 dark:text-white">
-                          #{ticket.id.split('-').pop()}
+                          #{ticket.ticketId || ticket.id}
                         </p>
                       </div>
                     </div>
@@ -185,7 +202,10 @@ export default function Dashboard() {
                         Created {formatDate(ticket.createdAt)}
                       </div>
                       <div className="flex gap-2">
-                        <button className="flex items-center gap-2 px-3 py-1 text-sm text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-md transition-colors">
+                        <button 
+                          onClick={() => window.open(`/validate/${ticket.ticketId}`, '_blank')}
+                          className="flex items-center gap-2 px-3 py-1 text-sm text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-md transition-colors"
+                        >
                           <QrCode size={16} />
                           View QR
                         </button>
@@ -209,7 +229,7 @@ export default function Dashboard() {
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Full Name</label>
-              <p className="mt-1 text-sm text-gray-900 dark:text-white">{userProfile?.fullName || 'Not provided'}</p>
+              <p className="mt-1 text-sm text-gray-900 dark:text-white">{userProfile?.fullName || currentUser?.displayName || 'Not provided'}</p>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Email</label>
@@ -223,7 +243,7 @@ export default function Dashboard() {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Tickets Generated</label>
-              <p className="mt-1 text-sm text-gray-900 dark:text-white">{tickets.length}</p>
+              <p className="mt-1 text-sm text-gray-900 dark:text-white">{stats.totalTickets}</p>
             </div>
           </div>
         </div>

@@ -1,4 +1,4 @@
-// src/pages/Home.jsx
+// src/pages/Home.jsx - Everyone can create tickets
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import TicketForm from '../components/TicketForm';
@@ -20,26 +20,63 @@ export default function Home() {
     email: '',
     eventName: '',
     eventDate: getTodayDate(),
-    eventLocation: 'Dallas, TX',
+    location: 'Dallas, TX',
     ticketType: 'Standard'
   });
   const [avatarFile, setAvatarFile] = useState(null);
   const [previewMode, setPreviewMode] = useState(false);
+  const [createdTicket, setCreatedTicket] = useState(null);
   const { currentUser } = useAuth();
   const navigate = useNavigate();
 
-  const handleFormSubmit = (data, file) => {
+  // Handle real-time preview updates (no backend call)
+  const handlePreviewUpdate = (data, file) => {
+    console.log('Preview update:', data);
     setTicketData(data);
     setAvatarFile(file);
+  };
+
+  // Handle actual form submission (with backend call)
+  const handleFormSubmit = (createdTicketData, file) => {
+    console.log('🏠 Home received ticket data:', createdTicketData);
+    
+    const ticketId = createdTicketData.ticketId || createdTicketData.id || `TICKET-${Date.now()}`;
+    
+    const forcedTicketData = {
+      fullName: createdTicketData.fullName || '',
+      email: createdTicketData.email || '',
+      eventName: createdTicketData.eventName || '',
+      eventDate: createdTicketData.eventDate || '',
+      location: createdTicketData.location || '',
+      ticketType: createdTicketData.ticketType || 'Standard',
+      ticketId: ticketId,
+      id: ticketId,
+      status: 'active',
+      userId: currentUser?.uid || 'anonymous', // Link to user if signed in
+      userEmail: currentUser?.email || createdTicketData.email,
+      createdAt: new Date().toISOString()
+    };
+    
+    console.log('🏠 FORCED ticket data with ID:', forcedTicketData);
+    
+    setTicketData(forcedTicketData);
+    setAvatarFile(file);
+    setCreatedTicket(createdTicketData);
     setPreviewMode(true);
+    
+    setTimeout(() => {
+      setTicketData({...forcedTicketData});
+    }, 100);
   };
 
   const handleEdit = () => {
     setPreviewMode(false);
+    setCreatedTicket(null);
   };
 
-  const handleAuth = () => {
-    navigate('/login');
+  // FIXED: Navigate to register page instead of login
+  const handleSignUp = () => {
+    navigate('/register');
   };
 
   return (
@@ -84,27 +121,36 @@ export default function Home() {
               </h2>
               <p className="text-gray-600 dark:text-gray-300 mb-6">
                 {previewMode 
-                  ? 'Your ticket has been generated. You can download it or make changes.' 
+                  ? 'Your ticket has been generated and saved. You can download it or make changes.' 
                   : 'Fill in your details to generate a professional conference ticket.'
                 }
               </p>
               
               {!previewMode ? (
                 <TicketForm 
-                  onSubmit={handleFormSubmit}
+                  onPreviewUpdate={handlePreviewUpdate}
+                  onSubmitSuccess={handleFormSubmit}
                   initialData={ticketData}
                 />
               ) : (
                 <div className="space-y-4">
                   <div className="p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
                     <p className="text-green-800 dark:text-green-400 font-medium">
-                      ✓ Ticket created successfully!
+                      ✓ Ticket created and saved successfully!
                     </p>
                     <p className="text-green-700 dark:text-green-300 text-sm mt-1">
-                      {currentUser 
-                        ? 'Check your email for the ticket PDF or view it in your dashboard.' 
-                        : 'Sign up to save tickets, enable email delivery, and access advanced features.'
-                      }
+                      {createdTicket && (
+                        <>
+                          <strong>Ticket ID:</strong> {createdTicket.ticketId || createdTicket.id}
+                          <br />
+                          <strong>Status:</strong> {createdTicket.status}
+                          <br />
+                          {currentUser 
+                            ? 'Your ticket has been saved to your account and emailed to you.' 
+                            : 'Sign up to save tickets permanently and enable email delivery.'
+                          }
+                        </>
+                      )}
                     </p>
                   </div>
                   
@@ -115,12 +161,20 @@ export default function Home() {
                     >
                       ← Edit Details
                     </button>
-                    {!currentUser && (
+                    
+                    {!currentUser ? (
                       <button
-                        onClick={handleAuth}
+                        onClick={handleSignUp}
                         className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                       >
                         Sign Up to Save
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => navigate('/dashboard')}
+                        className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                      >
+                        View Dashboard
                       </button>
                     )}
                   </div>
@@ -163,6 +217,7 @@ export default function Home() {
                 ticketData={ticketData}
                 avatarFile={avatarFile}
                 showDownload={previewMode}
+                isGenerated={previewMode && createdTicket !== null}
               />
             </div>
           </div>

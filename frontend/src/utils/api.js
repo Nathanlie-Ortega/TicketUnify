@@ -23,6 +23,8 @@ class ApiClient {
     }
 
     try {
+      console.log('🌐 API Request:', url, options.method || 'GET');
+      
       const response = await fetch(url, config);
       
       if (!response.ok) {
@@ -32,17 +34,19 @@ class ApiClient {
 
       const contentType = response.headers.get('content-type');
       if (contentType && contentType.includes('application/json')) {
-        return await response.json();
+        const result = await response.json();
+        console.log('✅ API Response:', result);
+        return result;
       }
       
       return await response.text();
     } catch (error) {
-      console.error('API request failed:', error);
+      console.error('❌ API request failed:', error);
       throw error;
     }
   }
 
-  // Ticket endpoints
+  // Ticket endpoints - FIXED: Remove duplicate /api
   async createTicket(ticketData) {
     return this.request('/api/tickets', {
       method: 'POST',
@@ -63,6 +67,11 @@ class ApiClient {
       method: 'PATCH',
       body: JSON.stringify({ ticketId }),
     });
+  }
+
+  // Health check - for testing connection
+  async healthCheck() {
+    return this.request('/health');
   }
 
   // User endpoints
