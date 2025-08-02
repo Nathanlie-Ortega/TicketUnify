@@ -1,0 +1,78 @@
+# render.yaml - Render.com deployment configuration
+services:
+  - type: web
+    name: ticketunify-backend
+    env: node
+    plan: starter  # free tier
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000  # Render's default port
+      - key: FRONTEND_URL
+        value: https://your-frontend.vercel.app  # Update with your frontend URL
+      - key: FIREBASE_PROJECT_ID
+        fromDatabase:
+          name: ticketunify-secrets
+          property: FIREBASE_PROJECT_ID
+      - key: FIREBASE_CLIENT_EMAIL
+        fromDatabase:
+          name: ticketunify-secrets
+          property: FIREBASE_CLIENT_EMAIL
+      - key: FIREBASE_PRIVATE_KEY
+        fromDatabase:
+          name: ticketunify-secrets
+          property: FIREBASE_PRIVATE_KEY
+      - key: FIREBASE_PRIVATE_KEY_ID
+        fromDatabase:
+          name: ticketunify-secrets
+          property: FIREBASE_PRIVATE_KEY_ID
+      - key: FIREBASE_CLIENT_ID
+        fromDatabase:
+          name: ticketunify-secrets
+          property: FIREBASE_CLIENT_ID
+      - key: EMAIL_HOST
+        value: smtp.gmail.com
+      - key: EMAIL_PORT
+        value: 587
+      - key: EMAIL_USER
+        fromDatabase:
+          name: ticketunify-secrets
+          property: EMAIL_USER
+      - key: EMAIL_PASS
+        fromDatabase:
+          name: ticketunify-secrets
+          property: EMAIL_PASS
+      - key: EMAIL_FROM
+        fromDatabase:
+          name: ticketunify-secrets
+          property: EMAIL_FROM
+      - key: STRIPE_SECRET_KEY
+        fromDatabase:
+          name: ticketunify-secrets
+          property: STRIPE_SECRET_KEY
+      - key: STRIPE_WEBHOOK_SECRET
+        fromDatabase:
+          name: ticketunify-secrets
+          property: STRIPE_WEBHOOK_SECRET
+      - key: JWT_SECRET
+        fromDatabase:
+          name: ticketunify-secrets
+          property: JWT_SECRET
+      - key: ENCRYPTION_KEY
+        fromDatabase:
+          name: ticketunify-secrets
+          property: ENCRYPTION_KEY
+      - key: ADMIN_EMAIL
+        fromDatabase:
+          name: ticketunify-secrets
+          property: ADMIN_EMAIL
+      - key: LOG_LEVEL
+        value: info
+
+databases:
+  - name: ticketunify-secrets
+    plan: starter  # free tier
