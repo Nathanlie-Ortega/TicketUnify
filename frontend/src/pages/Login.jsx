@@ -18,8 +18,8 @@ export default function Login() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  // Get the page user was trying to access before login - DEFAULT TO HOME
-  const from = location.state?.from?.pathname || '/';
+  // Get the page user was trying to access before login - DEFAULT TO DASHBOARD
+  const from = location.state?.from?.pathname || '/dashboard';
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -65,7 +65,7 @@ export default function Login() {
       
       toast.success('Welcome back!');
       
-      // Navigate to home page (not dashboard)
+      // Navigate to dashboard after successful login
       navigate(from, { replace: true });
       
     } catch (error) {
@@ -137,7 +137,7 @@ export default function Login() {
               className={`w-full px-3 py-2 border rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-800 dark:text-white ${
                 errors.email 
                   ? 'border-red-500 focus:border-red-500 focus:ring-red-500' 
-                  : 'border-gray-300 dark:border-gray-600 focus:border-blue-500'
+                  : 'border-black dark:border-gray-600 focus:border-blue-500'
               }`}
               placeholder="Enter your email"
               required
@@ -161,7 +161,7 @@ export default function Login() {
               className={`w-full px-3 py-2 border rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-800 dark:text-white ${
                 errors.password 
                   ? 'border-red-500 focus:border-red-500 focus:ring-red-500' 
-                  : 'border-gray-300 dark:border-gray-600 focus:border-blue-500'
+                  : 'border-black dark:border-gray-600 focus:border-blue-500'
               }`}
               placeholder="Enter your password"
               required
@@ -178,7 +178,7 @@ export default function Login() {
                 id="remember-me"
                 name="remember-me"
                 type="checkbox"
-                className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 dark:border-gray-600 rounded"
+                className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-black dark:border-gray-600 rounded"
               />
               <label htmlFor="remember-me" className="ml-2 block text-sm text-gray-700 dark:text-gray-300">
                 Remember me
@@ -208,15 +208,6 @@ export default function Login() {
             </div>
             <div className="relative flex justify-center text-sm">
               <span className="px-2 bg-gray-50 dark:bg-gray-900 text-gray-500 dark:text-gray-400">Or</span>
-            </div>
-          </div>
-
-          {/* Demo Accounts */}
-          <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-            <h3 className="text-sm font-medium text-blue-900 dark:text-blue-100 mb-2">Demo Accounts</h3>
-            <div className="text-xs text-blue-800 dark:text-blue-200 space-y-1">
-              <p><strong>User:</strong> user@demo.com / password123</p>
-              <p><strong>Admin:</strong> admin@demo.com / password123</p>
             </div>
           </div>
 

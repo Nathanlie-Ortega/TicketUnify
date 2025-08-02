@@ -15,7 +15,17 @@ export function ThemeProvider({ children }) {
   const [isDarkMode, setIsDarkMode] = useState(() => {
     // Check if we're in a browser environment
     if (typeof window !== 'undefined') {
-      // Try to get saved theme from document attribute
+      // First, try to get saved theme from localStorage
+      try {
+        const savedTheme = localStorage.getItem('theme');
+        if (savedTheme) {
+          return savedTheme === 'dark';
+        }
+      } catch (error) {
+        // localStorage not available, continue with other checks
+      }
+      
+      // Fallback: Try to get saved theme from document attribute
       const savedTheme = document.documentElement.getAttribute('data-theme');
       if (savedTheme) {
         return savedTheme === 'dark';
@@ -60,9 +70,17 @@ export function ThemeProvider({ children }) {
     
     const handleChange = (e) => {
       // Only update if user hasn't manually set a preference
-      const hasManualPreference = document.documentElement.getAttribute('data-theme');
-      if (!hasManualPreference) {
-        setIsDarkMode(e.matches);
+      try {
+        const hasManualPreference = localStorage.getItem('theme');
+        if (!hasManualPreference) {
+          setIsDarkMode(e.matches);
+        }
+      } catch (error) {
+        // Fallback to checking data-theme attribute
+        const hasManualPreference = document.documentElement.getAttribute('data-theme');
+        if (!hasManualPreference) {
+          setIsDarkMode(e.matches);
+        }
       }
     };
 

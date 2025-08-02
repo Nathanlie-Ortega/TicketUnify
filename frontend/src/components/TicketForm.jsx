@@ -150,7 +150,7 @@ export default function TicketForm({ onPreviewUpdate, onSubmitSuccess, initialDa
           createdAt: new Date().toISOString()
         };
         
-        console.log('🎫 Final ticket data being sent to Home:', finalTicketData);
+        console.log('Final ticket data being sent to Home:', finalTicketData);
         
         // Call success callback
         if (onSubmitSuccess && typeof onSubmitSuccess === 'function') {
@@ -160,7 +160,7 @@ export default function TicketForm({ onPreviewUpdate, onSubmitSuccess, initialDa
         throw new Error(response.message || 'Failed to create ticket');
       }
     } catch (error) {
-      console.error('❌ Ticket creation failed:', error);
+      console.error('Ticket creation failed:', error);
       setSubmitStatus({ 
         type: 'error', 
         message: `Failed to create ticket: ${error.message}` 
@@ -172,34 +172,8 @@ export default function TicketForm({ onPreviewUpdate, onSubmitSuccess, initialDa
     setAvatarFile(file);
   };
 
-  // Test backend connection
-  const testConnection = async () => {
-    try {
-      const response = await api.healthCheck();
-      setSubmitStatus({ 
-        type: 'success', 
-        message: '✅ Backend connection successful!' 
-      });
-    } catch (error) {
-      setSubmitStatus({ 
-        type: 'error', 
-        message: '❌ Backend connection failed. Make sure backend is running on port 5000.' 
-      });
-    }
-  };
-
   return (
     <div className="space-y-6">
-      {/* Connection Test Button */}
-      <div className="text-center">
-        <button
-          type="button"
-          onClick={testConnection}
-          className="text-sm px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
-        >
-          🔍 Test Backend Connection
-        </button>
-      </div>
 
       {/* Status Messages */}
       {submitStatus.message && (
@@ -240,8 +214,10 @@ export default function TicketForm({ onPreviewUpdate, onSubmitSuccess, initialDa
               type="text"
               id="fullName"
               {...register('fullName')}
-              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                errors.fullName ? 'border-red-500' : 'border-gray-300'
+              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white ${
+                errors.fullName 
+                  ? 'border-red-500' 
+                  : 'border-black dark:border-gray-600'
               }`}
               placeholder="Enter your full name"
             />
@@ -258,8 +234,10 @@ export default function TicketForm({ onPreviewUpdate, onSubmitSuccess, initialDa
               type="email"
               id="email"
               {...register('email')}
-              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                errors.email ? 'border-red-500' : 'border-gray-300'
+              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white ${
+                errors.email 
+                  ? 'border-red-500' 
+                  : 'border-black dark:border-gray-600'
               }`}
               placeholder="Enter your email"
             />
@@ -278,8 +256,10 @@ export default function TicketForm({ onPreviewUpdate, onSubmitSuccess, initialDa
             type="text"
             id="eventName"
             {...register('eventName')}
-            className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-              errors.eventName ? 'border-red-500' : 'border-gray-300'
+            className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white ${
+              errors.eventName 
+                ? 'border-red-500' 
+                : 'border-black dark:border-gray-600'
             }`}
             placeholder="Conference or event name"
           />
@@ -297,8 +277,10 @@ export default function TicketForm({ onPreviewUpdate, onSubmitSuccess, initialDa
               type="date"
               id="eventDate"
               {...register('eventDate')}
-              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                errors.eventDate ? 'border-red-500' : 'border-gray-300'
+              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white ${
+                errors.eventDate 
+                  ? 'border-red-500' 
+                  : 'border-black dark:border-gray-600'
               }`}
             />
             {errors.eventDate && (
@@ -313,8 +295,10 @@ export default function TicketForm({ onPreviewUpdate, onSubmitSuccess, initialDa
             <select
               id="location"
               {...register('location')}
-              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                errors.location ? 'border-red-500' : 'border-gray-300'
+              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white ${
+                errors.location 
+                  ? 'border-red-500' 
+                  : 'border-black dark:border-gray-600'
               }`}
             >
               <option value="">Select a city</option>
@@ -338,8 +322,10 @@ export default function TicketForm({ onPreviewUpdate, onSubmitSuccess, initialDa
           <select
             id="ticketType"
             {...register('ticketType')}
-            className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-              errors.ticketType ? 'border-red-500' : 'border-gray-300'
+            className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white ${
+              errors.ticketType 
+                ? 'border-red-500' 
+                : 'border-black dark:border-gray-600'
             }`}
           >
             <option value="Standard">Standard - Free</option>

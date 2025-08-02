@@ -1,16 +1,17 @@
-// src/pages/TicketValidation.jsx
+// src/pages/TicketValidation.jsx - Fixed with proper Firebase integration
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { CheckCircle, AlertCircle, Clock, ArrowLeft, UserPlus } from 'lucide-react';
-import Button from '../components/ui/Button';
-import LoadingSpinner from '../components/ui/LoadingSpinner';
 import { useAuth } from '../contexts/AuthContext';
-import { api } from '../utils/api';
+import { useTickets } from '../contexts/TicketContext';
+import { collection, query, where, getDocs, doc, updateDoc } from 'firebase/firestore';
+import { db } from '../utils/firebase';
 
 export default function TicketValidation() {
   const { ticketId } = useParams();
   const navigate = useNavigate();
   const { currentUser } = useAuth();
+  const { updateTicketCheckin } = useTickets();
   const [ticket, setTicket] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -26,16 +27,28 @@ export default function TicketValidation() {
       setLoading(true);
       setError('');
       
-      // Call your backend API to get ticket details
-      const response = await api.getTicket(ticketId);
+      console.log('🔍 Fetching ticket details for:', ticketId);
       
-      if (response.success) {
-        setTicket(response.ticket);
-      } else {
+      // Query Firestore for ticket by ticketId
+      const ticketsRef = collection(db, 'tickets');
+      const q = query(ticketsRef, where('ticketId', '==', ticketId));
+      const querySnapshot = await getDocs(q);
+      
+      if (querySnapshot.empty) {
+        console.log('❌ No ticket found with ID:', ticketId);
         setError('Ticket not found or invalid');
+        return;
       }
+      
+      // Get the first (should be only) ticket
+      const ticketDoc = querySnapshot.docs[0];
+      const ticketData = { id: ticketDoc.id, ...ticketDoc.data() };
+      
+      console.log('✅ Found ticket:', ticketData);
+      setTicket(ticketData);
+      
     } catch (err) {
-      console.error('Error fetching ticket:', err);
+      console.error('❌ Error fetching ticket:', err);
       setError('Failed to load ticket information');
     } finally {
       setLoading(false);
@@ -43,19 +56,36 @@ export default function TicketValidation() {
   };
 
   const handleCheckIn = async () => {
+    if (!ticket || !currentUser) return;
+    
     try {
       setCheckingIn(true);
+      console.log('✅ Checking in ticket:', ticket.id);
       
-      // Call your backend API to check in the ticket
-      const response = await api.checkInTicket(ticketId);
+      // Update in Firestore directly
+      const ticketRef = doc(db, 'tickets', ticket.id);
+      await updateDoc(ticketRef, {
+        checkedIn: true,
+        checkedInAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      });
       
-      if (response.success) {
-        setTicket(prev => ({ ...prev, checkedIn: true, checkedInAt: new Date().toISOString() }));
-      } else {
-        setError(response.message || 'Failed to check in ticket');
+      // Update local state
+      setTicket(prev => ({ 
+        ...prev, 
+        checkedIn: true, 
+        checkedInAt: new Date().toISOString() 
+      }));
+      
+      // Update context if available
+      if (updateTicketCheckin) {
+        await updateTicketCheckin(ticket.id, true);
       }
+      
+      console.log('🎉 Check-in completed successfully!');
+      
     } catch (err) {
-      console.error('Error checking in ticket:', err);
+      console.error('❌ Error checking in ticket:', err);
       setError('Failed to check in ticket');
     } finally {
       setCheckingIn(false);
@@ -64,18 +94,25 @@ export default function TicketValidation() {
 
   const formatDate = (dateString) => {
     if (!dateString) return 'N/A';
-    return new Date(dateString).toLocaleDateString('en-US', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric'
-    });
+    try {
+      const date = new Date(dateString + 'T00:00:00'); // Add time to prevent timezone issues
+      return date.toLocaleDateString('en-US', {
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      });
+    } catch (error) {
+      return dateString;
+    }
   };
 
   // Check if ticket belongs to the current user
   const isUserTicket = () => {
     if (!currentUser || !ticket) return false;
-    return ticket.userId === currentUser.uid || ticket.email === currentUser.email;
+    return ticket.userId === currentUser.uid || 
+           ticket.userEmail === currentUser.email || 
+           ticket.email === currentUser.email;
   };
 
   // Check if user can enter the event
@@ -86,7 +123,10 @@ export default function TicketValidation() {
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
-        <LoadingSpinner text="Loading ticket information..." />
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600 dark:text-gray-300">Loading ticket information...</p>
+        </div>
       </div>
     );
   }
@@ -97,7 +137,7 @@ export default function TicketValidation() {
         {/* Header */}
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">
-            {canEnterEvent() ? 'Entry Successful!' : 'Ticket Validation'}
+            {canEnterEvent() && !error ? 'Entry Successful!' : 'Ticket Validation'}
           </h1>
           <p className="text-gray-600 dark:text-gray-300">
             Ticket ID: <span className="font-mono text-sm">{ticketId}</span>
@@ -118,10 +158,13 @@ export default function TicketValidation() {
               <p className="text-red-700 dark:text-red-300 mb-6">
                 {error}
               </p>
-              <Button onClick={() => navigate('/')} variant="outline">
+              <button
+                onClick={() => navigate('/')}
+                className="inline-flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+              >
                 <ArrowLeft size={16} className="mr-2" />
                 Back to Home
-              </Button>
+              </button>
             </div>
           ) : !currentUser ? (
             /* Not Signed In - Require Signup */
@@ -161,29 +204,25 @@ export default function TicketValidation() {
               )}
               
               <div className="space-y-3">
-                <Button 
+                <button 
                   onClick={() => navigate('/register')} 
-                  className="w-full"
-                  size="lg"
+                  className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                 >
                   Create Free Account
-                </Button>
-                <Button 
+                </button>
+                <button 
                   onClick={() => navigate('/login')} 
-                  variant="outline" 
-                  className="w-full"
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                 >
                   Already have an account? Sign In
-                </Button>
-                <Button 
+                </button>
+                <button 
                   onClick={() => navigate('/')} 
-                  variant="outline" 
-                  size="sm"
-                  className="w-full"
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-sm"
                 >
-                  <ArrowLeft size={16} className="mr-2" />
+                  <ArrowLeft size={16} className="mr-2 inline" />
                   Back to Home
-                </Button>
+                </button>
               </div>
             </div>
           ) : currentUser && ticket && !isUserTicket() ? (
@@ -208,27 +247,25 @@ export default function TicketValidation() {
                   </div>
                   <div className="flex justify-between">
                     <span className="text-gray-600 dark:text-gray-400">Ticket Owner:</span>
-                    <span className="font-medium text-gray-900 dark:text-white">{ticket?.email || 'Unknown'}</span>
+                    <span className="font-medium text-gray-900 dark:text-white">{ticket?.email || ticket?.userEmail || 'Unknown'}</span>
                   </div>
                 </div>
               </div>
               
               <div className="space-y-3">
-                <Button 
+                <button 
                   onClick={() => navigate('/dashboard')} 
-                  className="w-full"
-                  size="lg"
+                  className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                 >
                   View My Tickets
-                </Button>
-                <Button 
+                </button>
+                <button 
                   onClick={() => navigate('/')} 
-                  variant="outline" 
-                  className="w-full"
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                 >
-                  <ArrowLeft size={16} className="mr-2" />
+                  <ArrowLeft size={16} className="mr-2 inline" />
                   Create New Ticket
-                </Button>
+                </button>
               </div>
             </div>
           ) : canEnterEvent() ? (
@@ -256,7 +293,7 @@ export default function TicketValidation() {
                     ? 'text-green-900 dark:text-green-100' 
                     : 'text-blue-900 dark:text-blue-100'
                 }`}>
-                  {ticket.checkedIn ? 'Already Checked In' : 'Entry Successful!'}
+                  {ticket.checkedIn ? 'Already Checked In' : 'Check-in Successful!'}
                 </h2>
                 <p className={`${
                   ticket.checkedIn 
@@ -309,32 +346,29 @@ export default function TicketValidation() {
                 {/* Action Buttons */}
                 <div className="mt-8 space-y-3">
                   {!ticket.checkedIn && (
-                    <Button 
+                    <button 
                       onClick={handleCheckIn} 
                       disabled={checkingIn}
-                      className="w-full"
-                      size="lg"
+                      className="w-full px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                     >
                       {checkingIn ? 'Checking In...' : 'Complete Check-In'}
-                    </Button>
+                    </button>
                   )}
                   
                   <div className="flex gap-3">
-                    <Button 
+                    <button 
                       onClick={() => navigate('/dashboard')} 
-                      variant="outline" 
-                      className="flex-1"
+                      className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                     >
                       View Dashboard
-                    </Button>
-                    <Button 
+                    </button>
+                    <button 
                       onClick={() => navigate('/')} 
-                      variant="outline" 
-                      className="flex-1"
+                      className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                     >
-                      <ArrowLeft size={16} className="mr-2" />
+                      <ArrowLeft size={16} className="mr-2 inline" />
                       Home
-                    </Button>
+                    </button>
                   </div>
                 </div>
               </div>

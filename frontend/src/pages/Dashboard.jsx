@@ -1,29 +1,82 @@
-// src/pages/Dashboard.jsx
-import React, { useState, useEffect } from 'react';
+// src/pages/Dashboard.jsx - Fixed dropdown visibility and delete functionality
+import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useTickets } from '../contexts/TicketContext';
-import { Ticket, QrCode, Download, Calendar, MapPin } from 'lucide-react';
+import { Ticket, QrCode, Download, Calendar, MapPin, Trash2, MoreVertical } from 'lucide-react';
 import { format } from 'date-fns';
+import { doc, deleteDoc } from 'firebase/firestore';
+import { db } from '../utils/firebase';
+import html2canvas from 'html2canvas';
+import jsPDF from 'jspdf';
+import QRCode from 'qrcode';
 
 export default function Dashboard() {
   const { currentUser, userProfile } = useAuth();
   const { tickets, getUserTickets, loading, getTicketStats } = useTickets();
   const [activeTab, setActiveTab] = useState('tickets');
+  const [deletingTicket, setDeletingTicket] = useState(null);
+  const [downloadingTicket, setDownloadingTicket] = useState(null);
+  const [openDropdown, setOpenDropdown] = useState(null);
+  const [deleteModal, setDeleteModal] = useState({ isOpen: false, ticket: null });
+  const ticketRefs = useRef({});
 
   useEffect(() => {
     if (currentUser) {
-      console.log('🔄 Dashboard: Fetching tickets for user:', currentUser.uid);
-      getUserTickets();
+      getUserTickets(true); // Force refresh on mount
     }
-  }, [currentUser]); // Removed getUserTickets from dependencies
+  }, [currentUser?.uid]);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (!event.target.closest('.dropdown-container')) {
+        setOpenDropdown(null);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // Get stats from ticket context
   const stats = getTicketStats();
 
+  // Check if user is new (signed up recently) vs returning (sign in)
+  const isNewUser = () => {
+    if (!currentUser?.metadata) return false;
+    const creationTime = new Date(currentUser.metadata.creationTime);
+    const lastSignInTime = new Date(currentUser.metadata.lastSignInTime);
+    // If account was created within the last hour, consider them new
+    const hoursSinceCreation = (Date.now() - creationTime.getTime()) / (1000 * 60 * 60);
+    return hoursSinceCreation < 1;
+  };
+
   const formatDate = (dateString) => {
     if (!dateString) return '';
     try {
-      return format(new Date(dateString), 'MMM dd, yyyy');
+      const date = new Date(dateString + 'T00:00:00'); // Add time to prevent timezone issues
+      return format(date, 'MMM dd, yyyy');
+    } catch (error) {
+      return dateString;
+    }
+  };
+
+  // Format creation date with proper timezone and 12-hour format
+  const formatCreationDate = (dateString) => {
+    if (!dateString) return '';
+    try {
+      const date = new Date(dateString);
+      return format(date, 'MMM dd, yyyy \'at\' h:mm a');
+    } catch (error) {
+      return dateString;
+    }
+  };
+
+  const formatDateForTicket = (dateString) => {
+    if (!dateString) return 'Event Date';
+    try {
+      const date = new Date(dateString + 'T00:00:00');
+      return format(date, 'EEEE, MMMM do, yyyy');
     } catch (error) {
       return dateString;
     }
@@ -41,21 +94,319 @@ export default function Dashboard() {
     return 'Inactive';
   };
 
+  // Open delete modal
+  const openDeleteModal = (ticket) => {
+    setDeleteModal({ isOpen: true, ticket });
+    setOpenDropdown(null);
+  };
+
+  // Close delete modal
+  const closeDeleteModal = () => {
+    setDeleteModal({ isOpen: false, ticket: null });
+  };
+
+  // Delete ticket function with custom modal
+  const handleDeleteTicket = async () => {
+    if (!deleteModal.ticket) return;
+    
+    setDeletingTicket(deleteModal.ticket.id);
+    
+    try {
+      console.log('🗑️ Deleting ticket:', deleteModal.ticket.id);
+      
+      // Delete from Firestore
+      await deleteDoc(doc(db, 'tickets', deleteModal.ticket.id));
+      
+      // Refresh tickets to update the UI and stats
+      await getUserTickets(true);
+      
+      console.log('✅ Ticket deleted successfully');
+      closeDeleteModal();
+      
+    } catch (error) {
+      console.error('❌ Error deleting ticket:', error);
+      alert('Failed to delete ticket. Please try again.');
+    } finally {
+      setDeletingTicket(null);
+    }
+  };
+
+  // Generate QR code for ticket
+  const generateTicketQR = async (ticketId) => {
+    try {
+      const validationUrl = `${window.location.origin}/validate/${ticketId}`;
+      return await QRCode.toDataURL(validationUrl, {
+        width: 200,
+        margin: 2,
+        color: {
+          dark: '#1f2937',
+          light: '#ffffff'
+        }
+      });
+    } catch (error) {
+      console.error('Error generating QR code:', error);
+      return null;
+    }
+  };
+
+  // Render ticket for download
+  const renderTicketForDownload = async (ticket) => {
+    const qrCodeUrl = await generateTicketQR(ticket.ticketId);
+    
+    // Create a temporary container for the ticket
+    const container = document.createElement('div');
+    container.style.position = 'absolute';
+    container.style.left = '-9999px';
+    container.style.top = '-9999px';
+    container.innerHTML = `
+      <div style="
+        width: 560px; 
+        height: 400px; 
+        background: linear-gradient(135deg, #3b82f6, #1d4ed8, #7c3aed);
+        border-radius: 16px;
+        position: relative;
+        overflow: hidden;
+        font-family: system-ui, -apple-system, sans-serif;
+      ">
+        <!-- Background Pattern -->
+        <div style="
+          position: absolute;
+          inset: 0;
+          opacity: 0.2;
+        ">
+          <svg width="100%" height="100%" viewBox="0 0 100 100">
+            <defs>
+              <pattern id="grid" width="10" height="10" patternUnits="userSpaceOnUse">
+                <path d="M 10 0 L 0 0 0 10" fill="none" stroke="white" stroke-width="0.5"/>
+              </pattern>
+            </defs>
+            <rect width="100%" height="100%" fill="url(#grid)" />
+          </svg>
+        </div>
+
+        <!-- Main Content -->
+        <div style="
+          position: relative;
+          padding: 24px;
+          height: 100%;
+          display: flex;
+          flex-direction: column;
+          color: white;
+        ">
+          <!-- Header -->
+          <div style="
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 16px;
+          ">
+            <div style="flex: 1;">
+              <h2 style="
+                font-size: 18px;
+                font-weight: bold;
+                margin: 0 0 4px 0;
+                line-height: 1.2;
+              ">${ticket.eventName}</h2>
+              <div style="
+                color: rgba(191, 219, 254, 1);
+                font-size: 14px;
+                display: flex;
+                align-items: center;
+              ">
+                📅 ${formatDateForTicket(ticket.eventDate)}
+              </div>
+            </div>
+            
+            <!-- Avatar placeholder -->
+            <div style="
+              width: 64px;
+              height: 64px;
+              border-radius: 50%;
+              border: 3px solid rgba(255, 255, 255, 0.2);
+              background: rgba(255, 255, 255, 0.1);
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              margin-left: 16px;
+            ">
+              👤
+            </div>
+          </div>
+
+          <!-- Attendee Info -->
+          <div style="flex: 1; margin-bottom: 16px;">
+            <div style="margin-bottom: 12px;">
+              <p style="
+                color: rgba(191, 219, 254, 1);
+                font-size: 12px;
+                text-transform: uppercase;
+                letter-spacing: 0.05em;
+                margin: 0 0 4px 0;
+              ">ATTENDEE</p>
+              <p style="
+                font-size: 18px;
+                font-weight: 600;
+                margin: 0;
+              ">${ticket.fullName}</p>
+            </div>
+
+            <div style="
+              color: rgba(191, 219, 254, 1);
+              font-size: 14px;
+              margin-bottom: 8px;
+              display: flex;
+              align-items: center;
+            ">
+              📍 ${ticket.location}
+            </div>
+
+            <div style="
+              color: rgba(191, 219, 254, 1);
+              font-size: 14px;
+              display: flex;
+              align-items: center;
+            ">
+              🎫 ${ticket.ticketType} Ticket
+            </div>
+          </div>
+
+          <!-- QR Code Section -->
+          <div style="
+            padding-top: 16px;
+            border-top: 1px solid rgba(255, 255, 255, 0.2);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+          ">
+            <div style="flex: 1;">
+              <p style="
+                color: rgba(191, 219, 254, 1);
+                font-size: 12px;
+                text-transform: uppercase;
+                letter-spacing: 0.05em;
+                margin: 0 0 4px 0;
+              ">TICKET ID</p>
+              <p style="
+                font-family: monospace;
+                font-size: 14px;
+                margin: 0;
+              ">#${ticket.ticketId}</p>
+            </div>
+            
+            ${qrCodeUrl ? `
+              <div style="
+                background: white;
+                padding: 8px;
+                border-radius: 8px;
+                margin-left: 16px;
+              ">
+                <img src="${qrCodeUrl}" alt="QR Code" style="width: 64px; height: 64px; display: block;" />
+              </div>
+            ` : ''}
+          </div>
+        </div>
+
+        <!-- Decorative Elements -->
+        <div style="
+          position: absolute;
+          top: 50%;
+          left: -16px;
+          width: 32px;
+          height: 32px;
+          background: #f9fafb;
+          border-radius: 50%;
+          transform: translateY(-50%);
+        "></div>
+        <div style="
+          position: absolute;
+          top: 50%;
+          right: -16px;
+          width: 32px;
+          height: 32px;
+          background: #f9fafb;
+          border-radius: 50%;
+          transform: translateY(-50%);
+        "></div>
+      </div>
+    `;
+
+    document.body.appendChild(container);
+    
+    try {
+      const canvas = await html2canvas(container.firstElementChild, {
+        scale: 2,
+        useCORS: true,
+        allowTaint: true,
+        backgroundColor: '#ffffff'
+      });
+      
+      document.body.removeChild(container);
+      return canvas;
+    } catch (error) {
+      document.body.removeChild(container);
+      throw error;
+    }
+  };
+
+  // Download as PDF
+  const downloadTicketAsPDF = async (ticket) => {
+    setDownloadingTicket(ticket.id);
+    setOpenDropdown(null);
+    try {
+      const canvas = await renderTicketForDownload(ticket);
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF({
+        orientation: 'landscape',
+        unit: 'mm',
+        format: 'a4'
+      });
+      
+      const imgWidth = 280;
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+      
+      pdf.addImage(imgData, 'PNG', 10, 10, imgWidth, imgHeight);
+      pdf.save(`${ticket.eventName}-ticket.pdf`);
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+      alert('Failed to generate PDF. Please try again.');
+    } finally {
+      setDownloadingTicket(null);
+    }
+  };
+
+  // Download as Image
+  const downloadTicketAsImage = async (ticket) => {
+    setDownloadingTicket(ticket.id);
+    setOpenDropdown(null);
+    try {
+      const canvas = await renderTicketForDownload(ticket);
+      const link = document.createElement('a');
+      link.download = `${ticket.eventName}-ticket.png`;
+      link.href = canvas.toDataURL();
+      link.click();
+    } catch (error) {
+      console.error('Error generating image:', error);
+      alert('Failed to generate image. Please try again.');
+    } finally {
+      setDownloadingTicket(null);
+    }
+  };
+
   return (
     <div className="max-w-6xl mx-auto">
-      {/* Header */}
+      {/* Header with Welcome vs Welcome Back */}
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">
-          Welcome back, {userProfile?.fullName || currentUser?.displayName}!
+          {isNewUser() ? 'Welcome' : 'Welcome back'}, {userProfile?.fullName || currentUser?.displayName || currentUser?.email?.split('@')[0]}!
         </h1>
         <p className="text-gray-600 dark:text-gray-300">
           Manage your tickets and view your event history
         </p>
       </div>
 
-      {/* Stats Cards */}
+      {/* Stats Cards with blue borders in light mode */}
       <div className="grid md:grid-cols-3 gap-6 mb-8">
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 transition-colors">
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 transition-colors border-2 border-blue-600 dark:border-gray-700">
           <div className="flex items-center">
             <div className="p-3 bg-blue-100 dark:bg-blue-900 rounded-lg">
               <Ticket className="w-6 h-6 text-blue-600 dark:text-blue-400" />
@@ -67,7 +418,7 @@ export default function Dashboard() {
           </div>
         </div>
 
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 transition-colors">
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 transition-colors border-2 border-blue-600 dark:border-gray-700">
           <div className="flex items-center">
             <div className="p-3 bg-green-100 dark:bg-green-900 rounded-lg">
               <QrCode className="w-6 h-6 text-green-600 dark:text-green-400" />
@@ -79,7 +430,7 @@ export default function Dashboard() {
           </div>
         </div>
 
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 transition-colors">
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 transition-colors border-2 border-blue-600 dark:border-gray-700">
           <div className="flex items-center">
             <div className="p-3 bg-purple-100 dark:bg-purple-900 rounded-lg">
               <Calendar className="w-6 h-6 text-purple-600 dark:text-purple-400" />
@@ -91,23 +442,6 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
-
-      {/* Debug Info - Remove this after testing */}
-      {process.env.NODE_ENV === 'development' && (
-        <div className="mb-4 p-4 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
-          <h3 className="font-semibold text-yellow-900 dark:text-yellow-100 mb-2">Debug Info:</h3>
-          <div className="text-sm text-yellow-800 dark:text-yellow-200">
-            <p>Current User ID: {currentUser?.uid}</p>
-            <p>Tickets Found: {tickets.length}</p>
-            <p>Loading: {loading ? 'Yes' : 'No'}</p>
-            {tickets.length > 0 && (
-              <div className="mt-2">
-                <p>Ticket IDs: {tickets.map(t => t.ticketId || t.id).join(', ')}</p>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
 
       {/* Tabs */}
       <div className="border-b border-gray-200 dark:border-gray-700 mb-6">
@@ -158,9 +492,9 @@ export default function Dashboard() {
               </a>
             </div>
           ) : (
-            <div className="grid gap-6">
+            <div className="grid gap-8">
               {tickets.map((ticket) => (
-                <div key={ticket.id} className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden transition-colors">
+                <div key={ticket.id} className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-visible transition-colors min-h-[200px] border-2 border-blue-600 dark:border-gray-700">
                   <div className="p-6">
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
@@ -197,9 +531,9 @@ export default function Dashboard() {
                       </div>
                     </div>
 
-                    <div className="mt-6 flex items-center justify-between pt-4 border-t border-gray-200 dark:border-gray-700">
+                    <div className="mt-8 flex items-center justify-between pt-4 border-t-2 border-blue-600 dark:border-gray-700">
                       <div className="text-sm text-gray-500 dark:text-gray-400">
-                        Created {formatDate(ticket.createdAt)}
+                        Created {formatCreationDate(ticket.createdAt)}
                       </div>
                       <div className="flex gap-2">
                         <button 
@@ -209,10 +543,55 @@ export default function Dashboard() {
                           <QrCode size={16} />
                           View QR
                         </button>
-                        <button className="flex items-center gap-2 px-3 py-1 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-md transition-colors">
-                          <Download size={16} />
-                          Download
-                        </button>
+                        
+                        {/* Fixed Dropdown - appears above button with simplified content */}
+                        <div className="relative dropdown-container">
+                          <button 
+                            onClick={() => setOpenDropdown(openDropdown === ticket.id ? null : ticket.id)}
+                            className="flex items-center gap-2 px-4 py-2 text-sm bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg transition-colors border-2 border-gray-300 dark:border-gray-600 shadow-sm"
+                          >
+                            <Download size={16} />
+                            Options
+                            <MoreVertical size={14} />
+                          </button>
+                          
+                          {/* Simplified Dropdown - no danger zone */}
+                          {openDropdown === ticket.id && (
+                            <div className="absolute right-0 bottom-full mb-2 w-56 bg-white dark:bg-gray-800 border-2 border-gray-400 dark:border-gray-500 rounded-xl shadow-2xl z-[100] overflow-hidden">
+                              {/* Download Section */}
+                              <div className="bg-blue-50 dark:bg-blue-900/30 px-3 py-2 border-b border-gray-200 dark:border-gray-600">
+                                <p className="text-xs font-semibold text-blue-800 dark:text-blue-300 uppercase tracking-wide">Download Ticket</p>
+                              </div>
+                              <button
+                                onClick={() => downloadTicketAsPDF(ticket)}
+                                disabled={downloadingTicket === ticket.id}
+                                className="w-full px-4 py-3 text-left text-sm text-gray-800 dark:text-gray-200 hover:bg-blue-100 dark:hover:bg-blue-900/40 flex items-center gap-3 disabled:opacity-50 transition-all duration-200 font-medium"
+                              >
+                                <Download size={18} className="text-blue-600 dark:text-blue-400" />
+                                <span>{downloadingTicket === ticket.id ? 'Generating PDF...' : 'Download as PDF'}</span>
+                              </button>
+                              <button
+                                onClick={() => downloadTicketAsImage(ticket)}
+                                disabled={downloadingTicket === ticket.id}
+                                className="w-full px-4 py-3 text-left text-sm text-gray-800 dark:text-gray-200 hover:bg-blue-100 dark:hover:bg-blue-900/40 flex items-center gap-3 disabled:opacity-50 transition-all duration-200 font-medium"
+                              >
+                                <Download size={18} className="text-blue-600 dark:text-blue-400" />
+                                <span>{downloadingTicket === ticket.id ? 'Generating PNG...' : 'Download as PNG'}</span>
+                              </button>
+                              
+                              {/* Simple Delete Button */}
+                              <hr className="border-gray-200 dark:border-gray-600" />
+                              <button
+                                onClick={() => openDeleteModal(ticket)}
+                                disabled={deletingTicket === ticket.id}
+                                className="w-full px-4 py-3 text-left text-sm text-red-700 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/40 flex items-center gap-3 disabled:opacity-50 transition-all duration-200 font-medium"
+                              >
+                                <Trash2 size={18} className="text-red-600 dark:text-red-400" />
+                                <span>Delete Ticket</span>
+                              </button>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -236,14 +615,95 @@ export default function Dashboard() {
               <p className="mt-1 text-sm text-gray-900 dark:text-white">{currentUser?.email}</p>
             </div>
             <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">User ID</label>
+              <p className="mt-1 text-sm text-gray-900 dark:text-white font-mono">{currentUser?.uid}</p>
+            </div>
+            <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Member Since</label>
               <p className="mt-1 text-sm text-gray-900 dark:text-white">
-                {userProfile?.createdAt ? formatDate(userProfile.createdAt) : 'Unknown'}
+                {currentUser?.metadata?.creationTime ? formatCreationDate(currentUser.metadata.creationTime) : 'Unknown'}
               </p>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Tickets Generated</label>
               <p className="mt-1 text-sm text-gray-900 dark:text-white">{stats.totalTickets}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Custom Delete Confirmation Modal */}
+      {deleteModal.isOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[200] p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-md w-full mx-4 overflow-hidden">
+            {/* Modal Header */}
+            <div className="bg-red-50 dark:bg-red-900/20 px-6 py-4 border-b border-red-200 dark:border-red-800">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-red-100 dark:bg-red-900/40 rounded-full flex items-center justify-center">
+                  <Trash2 size={20} className="text-red-600 dark:text-red-400" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-red-900 dark:text-red-100">Delete Ticket</h3>
+                  <p className="text-sm text-red-700 dark:text-red-300">This action cannot be undone</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Content */}
+            <div className="px-6 py-4">
+              <p className="text-gray-700 dark:text-gray-300 mb-4">
+                Are you sure you want to permanently delete the ticket for{' '}
+                <span className="font-semibold text-gray-900 dark:text-white">
+                  "{deleteModal.ticket?.eventName}"
+                </span>
+                ?
+              </p>
+              
+              <div className="bg-gray-50 dark:bg-gray-900/50 rounded-lg p-3 mb-4">
+                <div className="text-sm space-y-1">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600 dark:text-gray-400">Ticket ID:</span>
+                    <span className="font-mono text-gray-900 dark:text-white">#{deleteModal.ticket?.ticketId}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600 dark:text-gray-400">Event Date:</span>
+                    <span className="text-gray-900 dark:text-white">{formatDate(deleteModal.ticket?.eventDate)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600 dark:text-gray-400">Location:</span>
+                    <span className="text-gray-900 dark:text-white">{deleteModal.ticket?.location}</span>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+
+            {/* Modal Actions */}
+            <div className="bg-gray-50 dark:bg-gray-900/50 px-6 py-4 flex gap-3 justify-end">
+              <button
+                onClick={closeDeleteModal}
+                disabled={deletingTicket}
+                className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteTicket}
+                disabled={deletingTicket}
+                className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                {deletingTicket ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                    Deleting...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 size={16} />
+                    Delete Ticket
+                  </>
+                )}
+              </button>
             </div>
           </div>
         </div>

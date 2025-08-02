@@ -1,6 +1,6 @@
-// src/contexts/TicketContext.jsx
-import React, { createContext, useContext, useState, useCallback } from 'react';
-import { collection, query, where, getDocs, doc, updateDoc } from 'firebase/firestore';
+// src/contexts/TicketContext.jsx - Updated with delete functionality
+import React, { createContext, useContext, useState, useEffect } from 'react';
+import { collection, getDocs, doc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '../utils/firebase';
 import { useAuth } from './AuthContext';
 
@@ -17,154 +17,173 @@ export function useTickets() {
 export function TicketProvider({ children }) {
   const [tickets, setTickets] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
   const { currentUser } = useAuth();
 
-  // Get tickets for the current user
-  const getUserTickets = useCallback(async () => {
+  // Simple fetch - get ALL tickets and filter client-side (no indexes needed)
+  const getUserTickets = async (forceRefresh = false) => {
     if (!currentUser) {
-      console.log('❌ No current user - cannot fetch tickets');
+      console.log('👤 No current user, clearing tickets');
       setTickets([]);
-      setLoading(false);
       return;
     }
 
+    // Don't fetch if we already have tickets and this isn't a forced refresh
+    if (tickets.length > 0 && !forceRefresh) {
+      console.log('🎫 Using cached tickets');
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
     try {
-      setLoading(true);
-      console.log('🔄 Fetching tickets for user:', currentUser.uid);
-      console.log('🔄 User email:', currentUser.email);
-      
-      // Query tickets where userId matches current user OR email matches current user
-      const ticketsRef = collection(db, 'tickets');
-      const q = query(
-        ticketsRef,
-        where('userId', '==', currentUser.uid)
-      );
-      
-      const querySnapshot = await getDocs(q);
-      
-      const userTickets = [];
-      querySnapshot.forEach((doc) => {
-        const ticketData = doc.data();
-        userTickets.push({
-          id: doc.id,
-          ...ticketData
-        });
-        console.log('📋 Found ticket:', doc.id, ticketData);
+      console.log('🔍 Fetching ALL tickets (no complex queries)...');
+      console.log('👤 Current user:', {
+        uid: currentUser.uid,
+        email: currentUser.email
       });
       
-      console.log('✅ Fetched', userTickets.length, 'tickets for user');
+      // Simple query - just get ALL tickets (no where/orderBy clauses)
+      const ticketsRef = collection(db, 'tickets');
+      const allTicketsSnapshot = await getDocs(ticketsRef);
       
-      // If no tickets found with userId, try to find by email
-      if (userTickets.length === 0 && currentUser.email) {
-        console.log('🔄 No tickets with userId, searching by email...');
-        const emailQuery = query(
-          ticketsRef,
-          where('email', '==', currentUser.email)
-        );
+      console.log('📊 Total tickets in database:', allTicketsSnapshot.size);
+      
+      // Filter client-side for user tickets
+      const userTickets = [];
+      
+      allTicketsSnapshot.forEach(doc => {
+        const ticketData = { id: doc.id, ...doc.data() };
         
-        const emailSnapshot = await getDocs(emailQuery);
-        console.log('📧 Found', emailSnapshot.size, 'tickets by email');
+        // Check if ticket belongs to current user
+        const belongsToUser = 
+          ticketData.userId === currentUser.uid ||
+          ticketData.userEmail === currentUser.email ||
+          ticketData.email === currentUser.email;
         
-        emailSnapshot.forEach((doc) => {
-          const ticketData = doc.data();
-          userTickets.push({
+        if (belongsToUser) {
+          userTickets.push(ticketData);
+          console.log('✅ Found user ticket:', {
             id: doc.id,
-            ...ticketData
+            ticketId: ticketData.ticketId,
+            eventName: ticketData.eventName
           });
-          console.log('📋 Found ticket by email:', doc.id, ticketData);
-        });
-      }
+        }
+      });
       
+      // Sort by creation date (newest first) - client-side sorting
+      userTickets.sort((a, b) => {
+        const dateA = new Date(a.createdAt || 0);
+        const dateB = new Date(b.createdAt || 0);
+        return dateB - dateA;
+      });
+      
+      console.log('🎫 Final user tickets found:', userTickets.length);
       setTickets(userTickets);
       
     } catch (error) {
-      console.error('❌ Error fetching user tickets:', error);
-      setTickets([]);
+      console.error('❌ Error fetching tickets:', error);
+      setError(error.message || 'Failed to fetch tickets');
     } finally {
       setLoading(false);
-    }
-  }, [currentUser]);
-
-  // Get a specific ticket by ID
-  const getTicket = async (ticketId) => {
-    try {
-      console.log('🔄 Getting ticket:', ticketId);
-      
-      // For now, just find in current tickets array
-      const ticket = tickets.find(t => t.id === ticketId || t.ticketId === ticketId);
-      
-      if (ticket) {
-        console.log('✅ Found ticket:', ticket);
-        return ticket;
-      } else {
-        console.log('❌ Ticket not found');
-        return null;
-      }
-    } catch (error) {
-      console.error('❌ Error getting ticket:', error);
-      return null;
-    }
-  };
-
-  // Check in a ticket
-  const checkInTicket = async (ticketId) => {
-    try {
-      console.log('🔄 Checking in ticket:', ticketId);
-      
-      // Find the ticket document in Firebase
-      const ticketsRef = collection(db, 'tickets');
-      const q = query(
-        ticketsRef,
-        where('ticketId', '==', ticketId),
-        where('userId', '==', currentUser.uid)
-      );
-      
-      const querySnapshot = await getDocs(q);
-      
-      if (querySnapshot.empty) {
-        throw new Error('Ticket not found or not owned by user');
-      }
-      
-      // Update the first matching ticket
-      const ticketDoc = querySnapshot.docs[0];
-      await updateDoc(doc(db, 'tickets', ticketDoc.id), {
-        checkedIn: true,
-        checkedInAt: new Date().toISOString()
-      });
-      
-      // Update local state
-      setTickets(prevTickets => 
-        prevTickets.map(ticket => 
-          ticket.ticketId === ticketId 
-            ? { ...ticket, checkedIn: true, checkedInAt: new Date().toISOString() }
-            : ticket
-        )
-      );
-      
-      console.log('✅ Ticket checked in successfully');
-      return { success: true };
-      
-    } catch (error) {
-      console.error('❌ Error checking in ticket:', error);
-      throw error;
     }
   };
 
   // Add a new ticket to the context (when created)
   const addTicket = (newTicket) => {
-    console.log('➕ Adding new ticket to context:', newTicket);
-    setTickets(prevTickets => [...prevTickets, newTicket]);
+    console.log('➕ Adding ticket to context:', newTicket);
+    
+    setTickets(prevTickets => {
+      // Check if ticket already exists
+      const exists = prevTickets.some(ticket => 
+        ticket.id === newTicket.id || ticket.ticketId === newTicket.ticketId
+      );
+      
+      if (exists) {
+        console.log('🔄 Ticket already exists, updating');
+        return prevTickets.map(ticket => 
+          ticket.id === newTicket.id || ticket.ticketId === newTicket.ticketId 
+            ? newTicket 
+            : ticket
+        );
+      } else {
+        console.log('🆕 Adding new ticket to context');
+        const updatedTickets = [newTicket, ...prevTickets];
+        console.log('📊 Updated tickets count:', updatedTickets.length);
+        return updatedTickets;
+      }
+    });
   };
 
-  // Get tickets statistics
+  // Delete ticket from context and Firestore
+  const deleteTicket = async (ticketId) => {
+    try {
+      console.log('🗑️ Deleting ticket:', ticketId);
+      
+      // Delete from Firestore
+      await deleteDoc(doc(db, 'tickets', ticketId));
+      
+      // Remove from local state
+      setTickets(prevTickets => {
+        const updatedTickets = prevTickets.filter(ticket => ticket.id !== ticketId);
+        console.log('📊 Tickets after deletion:', updatedTickets.length);
+        return updatedTickets;
+      });
+      
+      console.log('✅ Ticket deleted successfully');
+      return true;
+    } catch (error) {
+      console.error('❌ Error deleting ticket:', error);
+      throw error;
+    }
+  };
+
+  // Update ticket check-in status
+  const updateTicketCheckin = async (ticketId, checkedIn = true) => {
+    try {
+      console.log('🔄 Updating ticket check-in:', ticketId, checkedIn);
+      
+      // Update in Firestore
+      const ticketRef = doc(db, 'tickets', ticketId);
+      await updateDoc(ticketRef, {
+        checkedIn: checkedIn,
+        checkedInAt: checkedIn ? new Date().toISOString() : null,
+        updatedAt: new Date().toISOString()
+      });
+
+      // Update in local state
+      setTickets(prevTickets =>
+        prevTickets.map(ticket =>
+          ticket.id === ticketId
+            ? { 
+                ...ticket, 
+                checkedIn: checkedIn,
+                checkedInAt: checkedIn ? new Date().toISOString() : null,
+                updatedAt: new Date().toISOString()
+              }
+            : ticket
+        )
+      );
+
+      console.log('✅ Ticket check-in updated successfully');
+      return true;
+    } catch (error) {
+      console.error('❌ Error updating ticket check-in:', error);
+      throw error;
+    }
+  };
+
+  // Calculate ticket statistics
   const getTicketStats = () => {
     const totalTickets = tickets.length;
-    const checkedInTickets = tickets.filter(t => t.checkedIn).length;
-    const upcomingEvents = tickets.filter(t => {
-      if (!t.eventDate) return false;
-      const eventDate = new Date(t.eventDate);
-      const today = new Date();
-      return eventDate > today;
+    const checkedInTickets = tickets.filter(ticket => ticket.checkedIn === true).length;
+    
+    // Calculate upcoming events (events in the future)
+    const today = new Date().toISOString().split('T')[0];
+    const upcomingEvents = tickets.filter(ticket => {
+      if (!ticket.eventDate) return false;
+      return ticket.eventDate >= today;
     }).length;
 
     return {
@@ -174,14 +193,43 @@ export function TicketProvider({ children }) {
     };
   };
 
+  // Find ticket by ID or ticketId
+  const findTicket = (ticketId) => {
+    return tickets.find(ticket => 
+      ticket.id === ticketId || 
+      ticket.ticketId === ticketId
+    );
+  };
+
+  // Clear tickets (for logout)
+  const clearTickets = () => {
+    console.log('🧹 Clearing tickets from context');
+    setTickets([]);
+    setError(null);
+  };
+
+  // Auto-fetch tickets when user changes
+  useEffect(() => {
+    if (currentUser) {
+      console.log('👤 User detected in context, fetching tickets for:', currentUser.uid);
+      getUserTickets(true); // Force refresh when user changes
+    } else {
+      console.log('👤 No user, clearing tickets');
+      clearTickets();
+    }
+  }, [currentUser?.uid]); // Only depend on UID to avoid infinite loops
+
   const value = {
     tickets,
     loading,
+    error,
     getUserTickets,
-    getTicket,
-    checkInTicket,
     addTicket,
-    getTicketStats
+    deleteTicket,
+    updateTicketCheckin,
+    getTicketStats,
+    findTicket,
+    clearTickets
   };
 
   return (
