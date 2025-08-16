@@ -1,5 +1,5 @@
 // src/components/layout/Navbar.jsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -9,13 +9,121 @@ import toast from 'react-hot-toast';
 export default function Navbar() {
   const [isOpen, setIsOpen] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [profileImage, setProfileImage] = useState(null);
   const { currentUser, userProfile, logout } = useAuth();
   const { isDarkMode, toggleTheme } = useTheme();
   const location = useLocation();
   const navigate = useNavigate();
 
+  // Get user display name with fallback priority
+  const getUserDisplayName = () => {
+    // Priority: userProfile.fullName > currentUser.displayName > email username
+    if (userProfile?.fullName) {
+      return userProfile.fullName.split(' ')[0]; // First name only
+    }
+    if (currentUser?.displayName) {
+      return currentUser.displayName.split(' ')[0]; // First name only
+    }
+    if (currentUser?.email) {
+      return currentUser.email.split('@')[0]; // Email username
+    }
+    return 'User';
+  };
+
+  // Listen for profile picture updates from localStorage (ACCOUNT profile only)
+  useEffect(() => {
+    const checkForAccountProfileImage = () => {
+      try {
+        // Only check for account profile image (not ticket-specific images)
+        const accountImage = localStorage.getItem('userProfileImage');
+        if (accountImage) {
+          setProfileImage(accountImage);
+          return;
+        }
+        
+        // Check pending account profile image (during signup process)
+        const pendingImage = localStorage.getItem('pendingUserProfileImage');
+        if (pendingImage) {
+          setProfileImage(pendingImage);
+          return;
+        }
+        
+        // No account profile image found
+        setProfileImage(null);
+      } catch (error) {
+        console.log('Error checking for account profile image:', error);
+        setProfileImage(null);
+      }
+    };
+
+    // Check immediately when component mounts or user changes
+    checkForAccountProfileImage();
+    
+    // Set up an interval to check for updates every 500ms when user is logged in
+    let interval;
+    if (currentUser) {
+      interval = setInterval(checkForAccountProfileImage, 500);
+    }
+    
+    // Listen for storage events (when localStorage changes in other tabs)
+    const handleStorageChange = (e) => {
+      if (e.key === 'userProfileImage' || e.key === 'pendingUserProfileImage') {
+        checkForAccountProfileImage();
+      }
+    };
+    
+    window.addEventListener('storage', handleStorageChange);
+    
+    return () => {
+      if (interval) clearInterval(interval);
+      window.removeEventListener('storage', handleStorageChange);
+    };
+  }, [currentUser]);
+
+  // Save profile image to localStorage when user signs up
+  const saveProfileImageToStorage = (imageUrl) => {
+    try {
+      if (imageUrl && currentUser) {
+        localStorage.setItem('userProfileImage', imageUrl);
+        setProfileImage(imageUrl);
+      }
+    } catch (error) {
+      console.log('Failed to save profile image:', error);
+    }
+  };
+
+  // Listen for custom events (when user signs up - ACCOUNT profile updates only)
+  useEffect(() => {
+    const handleAccountProfileUpdate = (event) => {
+      const { name, email, avatar } = event.detail || {};
+      
+      // Only update account profile picture, not ticket-specific ones
+      if (avatar && currentUser) {
+        saveProfileImageToStorage(avatar);
+      }
+      
+      // Force re-render of display name
+      if (name && currentUser) {
+        // The name will be picked up by getUserDisplayName() automatically
+        // through userProfile or currentUser.displayName
+      }
+    };
+
+    window.addEventListener('userProfileUpdated', handleAccountProfileUpdate);
+    
+    return () => {
+      window.removeEventListener('userProfileUpdated', handleAccountProfileUpdate);
+    };
+  }, [currentUser]);
+
   const handleLogout = async () => {
     try {
+      // Clear account profile image on logout (not ticket-specific images)
+      localStorage.removeItem('userProfileImage');
+      localStorage.removeItem('pendingUserProfileImage');
+      sessionStorage.removeItem('currentTicketAvatar');
+      setProfileImage(null);
+      
       await logout();
       toast.success('Logged out successfully');
       navigate('/');
@@ -109,11 +217,21 @@ export default function Navbar() {
                   onClick={() => setShowUserMenu(!showUserMenu)}
                   className="flex items-center space-x-2 text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 focus:outline-none transition-colors"
                 >
-                  <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center">
-                    <User size={18} className="text-blue-600 dark:text-blue-400" />
+                  {/* Dynamic Profile Picture */}
+                  <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center overflow-hidden border-2 border-blue-200 dark:border-blue-800">
+                    {profileImage ? (
+                      <img 
+                        src={profileImage} 
+                        alt="Profile" 
+                        className="w-full h-full object-cover"
+                        onError={() => setProfileImage(null)} // Fallback if image fails to load
+                      />
+                    ) : (
+                      <User size={18} className="text-blue-600 dark:text-blue-400" />
+                    )}
                   </div>
                   <span className="text-sm font-medium">
-                    {userProfile?.fullName?.split(' ')[0] || 'User'}
+                    {getUserDisplayName()}
                   </span>
                 </button>
 
@@ -232,8 +350,28 @@ export default function Navbar() {
                     </Link>
                   )}
                   <div className="border-t border-gray-200 dark:border-gray-700 pt-2 mt-2">
-                    <div className="px-3 py-2 text-xs text-gray-500 dark:text-gray-400">
-                      {currentUser.email}
+                    <div className="flex items-center px-3 py-2">
+                      {/* Mobile Profile Picture */}
+                      <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center overflow-hidden border-2 border-blue-200 dark:border-blue-800 mr-3">
+                        {profileImage ? (
+                          <img 
+                            src={profileImage} 
+                            alt="Profile" 
+                            className="w-full h-full object-cover"
+                            onError={() => setProfileImage(null)}
+                          />
+                        ) : (
+                          <User size={18} className="text-blue-600 dark:text-blue-400" />
+                        )}
+                      </div>
+                      <div>
+                        <div className="text-sm font-medium text-gray-900 dark:text-white">
+                          {getUserDisplayName()}
+                        </div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400">
+                          {currentUser.email}
+                        </div>
+                      </div>
                     </div>
                     <button
                       onClick={() => {

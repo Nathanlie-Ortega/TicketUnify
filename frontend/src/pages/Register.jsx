@@ -1,6 +1,6 @@
-// src/pages/Register.jsx
-import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+// src/pages/Register.jsx - Updated with auto check-in support
+import React, { useState, useEffect } from 'react';
+import { Link, useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import Button from '../components/ui/Button';
 import Input from '../components/ui/Input';
@@ -18,6 +18,31 @@ export default function Register() {
   const [loading, setLoading] = useState(false);
   const { signup } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
+
+  // Check if we're coming from ticket validation page
+  const fromValidation = searchParams.get('from') === 'validation';
+  const ticketId = searchParams.get('ticketId');
+  const autoCheckIn = searchParams.get('autoCheckIn') === 'true';
+  
+  // Pre-fill email from ticket data if available
+  useEffect(() => {
+    if (fromValidation && ticketId) {
+      // Try to get email from temporary ticket data
+      const tempTicketData = localStorage.getItem(`temp-ticket-${ticketId}`);
+      if (tempTicketData) {
+        try {
+          const tempTicket = JSON.parse(tempTicketData);
+          if (tempTicket.email) {
+            setFormData(prev => ({ ...prev, email: tempTicket.email }));
+          }
+        } catch (error) {
+          console.warn('Failed to parse temporary ticket data');
+        }
+      }
+    }
+  }, [fromValidation, ticketId]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -67,18 +92,39 @@ export default function Register() {
 
     setLoading(true);
     try {
-      console.log('🔄 Starting signup process...');
+      console.log('🔄 Starting signup process...', {
+        fromValidation,
+        autoCheckIn,
+        ticketId
+      });
       
-      // Call the signup function from AuthContext
-      const result = await signup(formData.email, formData.password, formData.fullName);
+      // Prepare signup options
+      const signupOptions = {
+        autoCheckIn: autoCheckIn && fromValidation // Only auto check-in if coming from validation
+      };
+      
+      // Call the signup function from AuthContext with auto check-in option
+      const result = await signup(formData.email, formData.password, formData.fullName, signupOptions);
       
       console.log('✅ Signup successful:', result);
       
-      // Show success message
-      toast.success('Account created successfully! Welcome to TicketUnify!');
+      // Show appropriate success message based on context
+      if (fromValidation && autoCheckIn) {
+        toast.success('Account created and checked in successfully! Welcome to the event!');
+      } else if (fromValidation) {
+        toast.success('Account created successfully! Your ticket has been converted to permanent.');
+      } else {
+        toast.success('Account created successfully! Welcome to TicketUnify!');
+      }
       
-      // Navigate to dashboard after successful registration
-      navigate('/dashboard', { replace: true });
+      // Navigate based on context
+      if (fromValidation && ticketId) {
+        // If coming from validation, redirect back to the ticket validation page
+        navigate(`/validate/${ticketId}`, { replace: true });
+      } else {
+        // Normal flow - go to dashboard
+        navigate('/dashboard', { replace: true });
+      }
       
     } catch (error) {
       console.error('❌ Registration error:', error);
@@ -115,10 +161,17 @@ export default function Register() {
       // If it's an "already exists" error, suggest going to login
       if (error?.code === 'auth/email-already-in-use') {
         setTimeout(() => {
-          toast('You can sign in with your existing account', {
-            icon: '💡',
-            duration: 4000
-          });
+          if (fromValidation) {
+            toast('You can sign in to access your ticket', {
+              icon: '💡',
+              duration: 4000
+            });
+          } else {
+            toast('You can sign in with your existing account', {
+              icon: '💡',
+              duration: 4000
+            });
+          }
         }, 2000);
       }
     } finally {
@@ -126,14 +179,54 @@ export default function Register() {
     }
   };
 
+  // Determine page messaging based on context
+  const getPageTitle = () => {
+    if (fromValidation && autoCheckIn) {
+      return 'Sign Up to Check In';
+    } else if (fromValidation) {
+      return 'Sign Up to Secure Your Ticket';
+    }
+    return 'Create Account';
+  };
+
+  const getPageSubtitle = () => {
+    if (fromValidation && autoCheckIn) {
+      return 'Create your account to complete check-in and confirm your entry';
+    } else if (fromValidation) {
+      return 'Create your account to convert your temporary ticket to permanent';
+    }
+    return 'Join TicketUnify to start creating professional tickets';
+  };
+
+  const getSubmitButtonText = () => {
+    if (fromValidation && autoCheckIn) {
+      return loading ? 'Creating Account & Checking In...' : 'Create Account & Check In';
+    } else if (fromValidation) {
+      return loading ? 'Creating Account & Securing Ticket...' : 'Create Account & Secure Ticket';
+    }
+    return loading ? 'Creating Account...' : 'Create Account';
+  };
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 py-12 px-4 transition-colors">
       <div className="max-w-md w-full space-y-8">
         <div className="text-center">
-          <h2 className="text-3xl font-bold text-gray-900 dark:text-white">Create Account</h2>
+          <h2 className="text-3xl font-bold text-gray-900 dark:text-white">{getPageTitle()}</h2>
           <p className="mt-2 text-gray-600 dark:text-gray-300">
-            Join TicketUnify to start creating professional tickets
+            {getPageSubtitle()}
           </p>
+          
+          {/* Special messaging for validation flow */}
+          {fromValidation && (
+            <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+              <p className="text-sm text-blue-700 dark:text-blue-300">
+                {autoCheckIn 
+                  ? '🎉 After creating your account, you\'ll be automatically checked in!'
+                  : '🔒 This will convert your temporary ticket to a permanent, secure ticket.'
+                }
+              </p>
+            </div>
+          )}
         </div>
         
         <form onSubmit={handleSubmit} className="space-y-6">
@@ -177,9 +270,15 @@ export default function Register() {
               }`}
               placeholder="Enter your email"
               required
+              disabled={fromValidation && formData.email} // Disable if pre-filled from ticket
             />
             {errors.email && (
               <p className="mt-1 text-sm text-red-600">{errors.email}</p>
+            )}
+            {fromValidation && formData.email && (
+              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                Email pre-filled from your ticket
+              </p>
             )}
           </div>
 
@@ -235,7 +334,7 @@ export default function Register() {
             className="w-full"
             size="lg"
           >
-            {loading ? 'Creating Account...' : 'Create Account'}
+            {getSubmitButtonText()}
           </Button>
 
           {/* Terms and Privacy */}
@@ -251,13 +350,32 @@ export default function Register() {
           <div className="text-center space-y-2">
             <p className="text-sm text-gray-600 dark:text-gray-300">
               Already have an account?{' '}
-              <Link to="/login" className="text-blue-600 dark:text-blue-400 hover:text-blue-500 dark:hover:text-blue-300 font-medium">
+              <Link 
+                to={fromValidation 
+                  ? `/login?from=validation&ticketId=${ticketId}&autoCheckIn=${autoCheckIn}` 
+                  : "/login"
+                } 
+                className="text-blue-600 dark:text-blue-400 hover:text-blue-500 dark:hover:text-blue-300 font-medium"
+              >
                 Sign in
               </Link>
             </p>
-            <Link to="/" className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-500 dark:hover:text-blue-300">
-              ← Back to home
-            </Link>
+            
+            {fromValidation ? (
+              <Link 
+                to={`/validate/${ticketId}`} 
+                className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-500 dark:hover:text-blue-300"
+              >
+                ← Back to ticket validation
+              </Link>
+            ) : (
+              <Link 
+                to="/" 
+                className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-500 dark:hover:text-blue-300"
+              >
+                ← Back to home
+              </Link>
+            )}
           </div>
         </form>
       </div>

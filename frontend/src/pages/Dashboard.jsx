@@ -1,10 +1,10 @@
-// src/pages/Dashboard.jsx - Fixed dropdown visibility and delete functionality
+// src/pages/Dashboard.jsx - Complete fixed version with profile picture support in downloads
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { useTickets } from '../contexts/TicketContext';
 import { Ticket, QrCode, Download, Calendar, MapPin, Trash2, MoreVertical } from 'lucide-react';
 import { format } from 'date-fns';
-import { doc, deleteDoc } from 'firebase/firestore';
+import { doc, deleteDoc, getDoc } from 'firebase/firestore';
 import { db } from '../utils/firebase';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
@@ -18,6 +18,7 @@ export default function Dashboard() {
   const [downloadingTicket, setDownloadingTicket] = useState(null);
   const [openDropdown, setOpenDropdown] = useState(null);
   const [deleteModal, setDeleteModal] = useState({ isOpen: false, ticket: null });
+  const [ticketAvatars, setTicketAvatars] = useState({});
   const ticketRefs = useRef({});
 
   useEffect(() => {
@@ -25,6 +26,57 @@ export default function Dashboard() {
       getUserTickets(true); // Force refresh on mount
     }
   }, [currentUser?.uid]);
+
+  // Load ticket-specific avatars when tickets change
+  useEffect(() => {
+    const loadTicketAvatars = async () => {
+      const avatars = {};
+      
+      for (const ticket of tickets) {
+        try {
+          // Try to get avatar from ticket document in Firestore
+          if (ticket.id) {
+            const ticketDoc = await getDoc(doc(db, 'tickets', ticket.id));
+            if (ticketDoc.exists()) {
+              const ticketData = ticketDoc.data();
+              if (ticketData.avatarUrl) {
+                avatars[ticket.id] = ticketData.avatarUrl;
+              }
+            }
+          }
+          
+          // Fallback: Check localStorage for ticket-specific avatar
+          const storedAvatar = localStorage.getItem(`ticket-avatar-${ticket.id}`);
+          if (storedAvatar && !avatars[ticket.id]) {
+            avatars[ticket.id] = storedAvatar;
+          }
+          
+          // Another fallback: Check if this is a recent ticket
+          if (ticket.ticketId) {
+            const recentTicketData = localStorage.getItem('recentTicketData');
+            if (recentTicketData) {
+              try {
+                const recentData = JSON.parse(recentTicketData);
+                if (recentData.ticketId === ticket.ticketId && recentData.avatarUrl && !avatars[ticket.id]) {
+                  avatars[ticket.id] = recentData.avatarUrl;
+                }
+              } catch (e) {
+                console.log('Failed to parse recent ticket data');
+              }
+            }
+          }
+        } catch (error) {
+          console.warn(`Failed to load avatar for ticket ${ticket.id}:`, error);
+        }
+      }
+      
+      setTicketAvatars(avatars);
+    };
+
+    if (tickets.length > 0) {
+      loadTicketAvatars();
+    }
+  }, [tickets]);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -117,6 +169,16 @@ export default function Dashboard() {
       // Delete from Firestore
       await deleteDoc(doc(db, 'tickets', deleteModal.ticket.id));
       
+      // Clean up ticket-specific avatar storage
+      localStorage.removeItem(`ticket-avatar-${deleteModal.ticket.id}`);
+      
+      // Remove from local state
+      setTicketAvatars(prev => {
+        const updated = { ...prev };
+        delete updated[deleteModal.ticket.id];
+        return updated;
+      });
+      
       // Refresh tickets to update the UI and stats
       await getUserTickets(true);
       
@@ -149,9 +211,11 @@ export default function Dashboard() {
     }
   };
 
-  // Render ticket for download
+
+  // Enhanced render ticket for download with profile picture support
   const renderTicketForDownload = async (ticket) => {
     const qrCodeUrl = await generateTicketQR(ticket.ticketId);
+    const avatarUrl = ticketAvatars[ticket.id]; // Get ticket-specific avatar
     
     // Create a temporary container for the ticket
     const container = document.createElement('div');
@@ -217,7 +281,7 @@ export default function Dashboard() {
               </div>
             </div>
             
-            <!-- Avatar placeholder -->
+            <!-- Avatar with profile picture support -->
             <div style="
               width: 64px;
               height: 64px;
@@ -228,8 +292,20 @@ export default function Dashboard() {
               align-items: center;
               justify-content: center;
               margin-left: 16px;
+              overflow: hidden;
             ">
-              👤
+              ${avatarUrl ? `
+                <img 
+                  src="${avatarUrl}" 
+                  alt="Profile" 
+                  style="
+                    width: 100%; 
+                    height: 100%; 
+                    object-fit: cover;
+                    border-radius: 50%;
+                  " 
+                />
+              ` : '👤'}
             </div>
           </div>
 
@@ -391,6 +467,7 @@ export default function Dashboard() {
       setDownloadingTicket(null);
     }
   };
+
 
   return (
     <div className="max-w-6xl mx-auto">
@@ -587,7 +664,7 @@ export default function Dashboard() {
                                 className="w-full px-4 py-3 text-left text-sm text-red-700 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/40 flex items-center gap-3 disabled:opacity-50 transition-all duration-200 font-medium"
                               >
                                 <Trash2 size={18} className="text-red-600 dark:text-red-400" />
-                                <span>Delete Ticket</span>
+                                <span>Delete Permanently</span>
                               </button>
                             </div>
                           )}
@@ -676,6 +753,11 @@ export default function Dashboard() {
                 </div>
               </div>
 
+              <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-3 mb-4">
+                <p className="text-yellow-800 dark:text-yellow-300 text-sm">
+                  ⚠️ This ticket will be permanently removed from the database and cannot be recovered.
+                </p>
+              </div>
             </div>
 
             {/* Modal Actions */}
@@ -700,7 +782,7 @@ export default function Dashboard() {
                 ) : (
                   <>
                     <Trash2 size={16} />
-                    Delete Ticket
+                    Delete Permanently
                   </>
                 )}
               </button>

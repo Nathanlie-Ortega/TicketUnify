@@ -1,4 +1,4 @@
-// src/pages/TicketValidation.jsx - Fixed with proper Firebase integration
+// src/pages/TicketValidation.jsx - Fixed with proper temporary ticket handling
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { CheckCircle, AlertCircle, Clock, ArrowLeft, UserPlus } from 'lucide-react';
@@ -16,6 +16,7 @@ export default function TicketValidation() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [checkingIn, setCheckingIn] = useState(false);
+  const [isTemporaryTicket, setIsTemporaryTicket] = useState(false);
 
   // Fetch ticket details when component mounts
   useEffect(() => {
@@ -29,14 +30,29 @@ export default function TicketValidation() {
       
       console.log('🔍 Fetching ticket details for:', ticketId);
       
-      // Query Firestore for ticket by ticketId
+      // First, check for temporary ticket in localStorage
+      const tempTicketData = localStorage.getItem(`temp-ticket-${ticketId}`);
+      if (tempTicketData) {
+        try {
+          const tempTicket = JSON.parse(tempTicketData);
+          console.log('📄 Found temporary ticket:', tempTicket);
+          setTicket(tempTicket);
+          setIsTemporaryTicket(true);
+          setLoading(false);
+          return;
+        } catch (e) {
+          console.warn('Failed to parse temporary ticket data');
+        }
+      }
+      
+      // If no temporary ticket, query Firestore for permanent ticket
       const ticketsRef = collection(db, 'tickets');
       const q = query(ticketsRef, where('ticketId', '==', ticketId));
       const querySnapshot = await getDocs(q);
       
       if (querySnapshot.empty) {
         console.log('❌ No ticket found with ID:', ticketId);
-        setError('Ticket not found or invalid');
+        setError('Ticket not found');
         return;
       }
       
@@ -44,8 +60,9 @@ export default function TicketValidation() {
       const ticketDoc = querySnapshot.docs[0];
       const ticketData = { id: ticketDoc.id, ...ticketDoc.data() };
       
-      console.log('✅ Found ticket:', ticketData);
+      console.log('✅ Found permanent ticket:', ticketData);
       setTicket(ticketData);
+      setIsTemporaryTicket(false);
       
     } catch (err) {
       console.error('❌ Error fetching ticket:', err);
@@ -56,7 +73,7 @@ export default function TicketValidation() {
   };
 
   const handleCheckIn = async () => {
-    if (!ticket || !currentUser) return;
+    if (!ticket || !currentUser || isTemporaryTicket) return;
     
     try {
       setCheckingIn(true);
@@ -107,9 +124,9 @@ export default function TicketValidation() {
     }
   };
 
-  // Check if ticket belongs to the current user
+  // Check if ticket belongs to the current user (only for permanent tickets)
   const isUserTicket = () => {
-    if (!currentUser || !ticket) return false;
+    if (!currentUser || !ticket || isTemporaryTicket) return false;
     return ticket.userId === currentUser.uid || 
            ticket.userEmail === currentUser.email || 
            ticket.email === currentUser.email;
@@ -117,7 +134,7 @@ export default function TicketValidation() {
 
   // Check if user can enter the event
   const canEnterEvent = () => {
-    return currentUser && ticket && ticket.status === 'active' && isUserTicket();
+    return currentUser && ticket && !isTemporaryTicket && ticket.status === 'active' && isUserTicket();
   };
 
   if (loading) {
@@ -137,7 +154,7 @@ export default function TicketValidation() {
         {/* Header */}
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">
-            {canEnterEvent() && !error ? 'Entry Successful!' : 'Ticket Validation'}
+            Ticket Validation
           </h1>
           <p className="text-gray-600 dark:text-gray-300">
             Ticket ID: <span className="font-mono text-sm">{ticketId}</span>
@@ -146,14 +163,14 @@ export default function TicketValidation() {
 
         {/* Main Content */}
         <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg border-2 border-blue-600 dark:border-gray-700 overflow-hidden">
-          {error ? (
+          {error && !ticket ? (
             /* Error State - Ticket Not Found */
             <div className="p-8 text-center">
               <div className="w-16 h-16 bg-red-100 dark:bg-red-900/20 rounded-full flex items-center justify-center mx-auto mb-4">
                 <AlertCircle size={32} className="text-red-600 dark:text-red-400" />
               </div>
               <h2 className="text-xl font-semibold text-red-900 dark:text-red-100 mb-2">
-                Invalid Ticket
+                Ticket Not Found
               </h2>
               <p className="text-red-700 dark:text-red-300 mb-6">
                 {error}
@@ -166,8 +183,91 @@ export default function TicketValidation() {
                 Back to Home
               </button>
             </div>
+          ) : isTemporaryTicket ? (
+            /* Temporary Ticket - Requires Signup */
+            <div className="p-8 text-center">
+              <div className="w-16 h-16 bg-yellow-100 dark:bg-yellow-900/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Clock size={32} className="text-yellow-600 dark:text-yellow-400" />
+              </div>
+              <h2 className="text-xl font-semibold text-yellow-900 dark:text-yellow-100 mb-2">
+                Temporary Ticket - Signup Required
+              </h2>
+              <p className="text-yellow-700 dark:text-yellow-300 mb-6">
+                This is a temporary ticket. You must sign up to confirm your entry and enable check-in validation.
+              </p>
+              
+              {ticket && (
+                <div className="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-600 rounded-lg p-4 mb-6 text-left">
+                  <h3 className="font-semibold text-gray-900 dark:text-white mb-3">Ticket Preview</h3>
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-gray-600 dark:text-gray-400">Attendee:</span>
+                      <span className="font-medium text-gray-900 dark:text-white">{ticket.fullName}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600 dark:text-gray-400">Event:</span>
+                      <span className="font-medium text-gray-900 dark:text-white">{ticket.eventName}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600 dark:text-gray-400">Date:</span>
+                      <span className="font-medium text-gray-900 dark:text-white">{formatDate(ticket.eventDate)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600 dark:text-gray-400">Location:</span>
+                      <span className="font-medium text-gray-900 dark:text-white">{ticket.location}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600 dark:text-gray-400">Type:</span>
+                      <span className="font-medium text-gray-900 dark:text-white">{ticket.ticketType}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600 dark:text-gray-400">Status:</span>
+                      <span className="font-medium text-yellow-600 dark:text-yellow-400">Temporary</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+              
+              <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4 mb-6">
+                <h4 className="font-semibold text-blue-900 dark:text-blue-100 mb-2">Sign up to unlock:</h4>
+                <ul className="text-sm text-blue-800 dark:text-blue-200 space-y-1 text-left">
+                  <li>✓ Permanent ticket storage</li>
+                  <li>✓ Check-in validation</li>
+                  <li>✓ Email delivery</li>
+                  <li>✓ Access from any device</li>
+                  <li>✓ Event entry confirmation</li>
+                </ul>
+              </div>
+              
+              <div className="space-y-3">
+                <button 
+                  onClick={() => navigate('/register', { 
+                    state: { 
+                      fromValidation: true, 
+                      ticketId: ticketId 
+                    } 
+                  })} 
+                  className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  Sign Up to Confirm Entry
+                </button>
+                <button 
+                  onClick={() => navigate('/login')} 
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                >
+                  Already have an account? Sign In
+                </button>
+                <button 
+                  onClick={() => navigate('/')} 
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-sm"
+                >
+                  <ArrowLeft size={16} className="mr-2 inline" />
+                  Back to Home
+                </button>
+              </div>
+            </div>
           ) : !currentUser ? (
-            /* Not Signed In - Require Signup */
+            /* Not Signed In - Require Signup for Permanent Ticket */
             <div className="p-8 text-center">
               <div className="w-16 h-16 bg-yellow-100 dark:bg-yellow-900/20 rounded-full flex items-center justify-center mx-auto mb-4">
                 <UserPlus size={32} className="text-yellow-600 dark:text-yellow-400" />
@@ -378,7 +478,9 @@ export default function TicketValidation() {
 
         {/* Instructions */}
         <div className="mt-8 text-center text-sm text-gray-500 dark:text-gray-400">
-          {!currentUser ? (
+          {isTemporaryTicket ? (
+            <p>This is a temporary ticket. Sign up to confirm your entry and enable full validation.</p>
+          ) : !currentUser ? (
             <p>Sign up to secure your entry and prevent ticket reuse</p>
           ) : canEnterEvent() ? (
             <p>Your entry has been confirmed. Enjoy the event!</p>

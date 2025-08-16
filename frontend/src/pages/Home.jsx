@@ -1,4 +1,4 @@
-// src/pages/Home.jsx - Fixed with proper TicketContext integration
+// src/pages/Home.jsx - Fixed with proper TicketContext integration and profile picture handling
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { collection, addDoc } from 'firebase/firestore';
@@ -40,11 +40,70 @@ export default function Home() {
   const { addTicket } = useTickets(); // Use the ticket context
   const navigate = useNavigate();
 
+  // Helper function to convert file to base64 URL
+  const convertFileToDataURL = (file) => {
+    return new Promise((resolve, reject) => {
+      if (!file) {
+        resolve(null);
+        return;
+      }
+      
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  };
+
+  // Save avatar to storage for navbar use (only for the first ticket when signing up)
+  const saveAvatarToStorage = async (avatarFile, ticketData, isFirstTicket = false) => {
+    try {
+      if (avatarFile) {
+        const avatarDataURL = await convertFileToDataURL(avatarFile);
+        if (avatarDataURL) {
+          // Always save for current ticket preview
+          sessionStorage.setItem('currentTicketAvatar', avatarDataURL);
+          
+          // Save ticket data with avatar for later reference
+          const ticketDataWithAvatar = {
+            ...ticketData,
+            avatarUrl: avatarDataURL,
+            timestamp: Date.now()
+          };
+          localStorage.setItem('recentTicketData', JSON.stringify(ticketDataWithAvatar));
+          
+          // Save ticket-specific avatar using ticket ID if available
+          if (ticketData.id) {
+            localStorage.setItem(`ticket-avatar-${ticketData.id}`, avatarDataURL);
+          }
+          
+          // Only save as account profile picture if this is the first ticket and user isn't logged in
+          if (!currentUser && isFirstTicket) {
+            // This will become the account profile picture when user signs up
+            localStorage.setItem('pendingUserProfileImage', avatarDataURL);
+            console.log('💾 Saved as pending account profile picture');
+          }
+          
+          console.log('💾 Avatar saved to storage for ticket use');
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to save avatar to storage:', error);
+    }
+  };
+
   // Handle real-time preview updates (no backend call)
-  const handlePreviewUpdate = (data, file) => {
+  const handlePreviewUpdate = async (data, file) => {
     console.log('Preview update:', data);
     setTicketData(data);
     setAvatarFile(file);
+    
+    // Check if this is the user's first ticket (when not logged in)
+    const isFirstTicket = !currentUser;
+    
+    // Save avatar to storage for ticket and potentially account use
+    await saveAvatarToStorage(file, data, isFirstTicket);
+    
     // Clear any previous errors when user makes changes
     setError(null);
   };
@@ -84,6 +143,14 @@ export default function Home() {
         updatedAt: new Date().toISOString()
       };
       
+      // Add avatar URL to ticket data if available
+      if (avatarFile) {
+        const avatarDataURL = await convertFileToDataURL(avatarFile);
+        if (avatarDataURL) {
+          ticketDataForFirestore.avatarUrl = avatarDataURL;
+        }
+      }
+      
       console.log('💾 Attempting to save ticket to Firestore:', ticketDataForFirestore);
       
       // Test Firestore connection with a timeout
@@ -93,14 +160,22 @@ export default function Home() {
       );
       
       const docRef = await Promise.race([savePromise, timeoutPromise]);
-      
-      console.log('✅ Ticket saved with Firestore ID:', docRef.id);
-      
+            
       // Create final ticket data with Firestore document ID
       const finalTicketData = {
         id: docRef.id,
         ...ticketDataForFirestore
       };
+      
+      // Save ticket-specific avatar to storage
+      if (avatarFile) {
+        const avatarDataURL = await convertFileToDataURL(avatarFile);
+        if (avatarDataURL) {
+          // Save ticket-specific avatar
+          localStorage.setItem(`ticket-avatar-${docRef.id}`, avatarDataURL);
+          console.log('💾 Saved ticket-specific avatar for:', docRef.id);
+        }
+      }
       
       // Update local state
       setTicketData(finalTicketData);
@@ -153,8 +228,31 @@ export default function Home() {
     setError(null);
   };
 
-  // Navigate to register page instead of login
-  const handleSignUp = () => {
+  // Navigate to register page and handle profile picture for account creation only
+  const handleSignUp = async () => {
+    try {
+      // Only save account profile data if this is the first ticket creation
+      if (avatarFile && ticketData.fullName) {
+        const avatarDataURL = await convertFileToDataURL(avatarFile);
+        if (avatarDataURL) {
+          // Save for account creation (not for individual tickets)
+          localStorage.setItem('pendingUserProfileImage', avatarDataURL);
+          localStorage.setItem('pendingUserName', ticketData.fullName);
+          
+          // Dispatch custom event to notify navbar about ACCOUNT profile update
+          window.dispatchEvent(new CustomEvent('userProfileUpdated', {
+            detail: {
+              name: ticketData.fullName,
+              email: ticketData.email,
+              avatar: avatarDataURL
+            }
+          }));
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to save profile data for signup:', error);
+    }
+    
     navigate('/register');
   };
 
@@ -247,14 +345,15 @@ export default function Home() {
                 <div className="space-y-4">
                   <div className="p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
                     <p className="text-green-800 dark:text-green-400 font-medium">
-                      ✓ Ticket created and saved successfully!
+                          {currentUser 
+                            ? "✓ Ticket created and saved successfully!"
+                            : "✓ Temporary ticket created and saved successfully!"
+                          }
                     </p>
                     <p className="text-green-700 dark:text-green-300 text-sm mt-1">
                       {createdTicket && (
                         <>
                           <strong>Ticket ID:</strong> {createdTicket.ticketId}
-                          <br />
-                          <strong>Firestore ID:</strong> {createdTicket.id}
                           <br />
                           <strong>Status:</strong> {createdTicket.status}
                           <br />
@@ -268,12 +367,6 @@ export default function Home() {
                   </div>
                   
                   <div className="flex gap-3">
-                    <button
-                      onClick={handleEdit}
-                      className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-                    >
-                      ← Edit Details
-                    </button>
                     
                     {!currentUser ? (
                       <button
