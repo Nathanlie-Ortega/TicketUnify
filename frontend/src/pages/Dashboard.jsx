@@ -721,7 +721,6 @@ export default function Dashboard() {
                 </div>
                 <div>
                   <h3 className="text-lg font-semibold text-red-900 dark:text-red-100">Delete Ticket</h3>
-                  <p className="text-sm text-red-700 dark:text-red-300">This action cannot be undone</p>
                 </div>
               </div>
             </div>
@@ -753,11 +752,6 @@ export default function Dashboard() {
                 </div>
               </div>
 
-              <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-3 mb-4">
-                <p className="text-yellow-800 dark:text-yellow-300 text-sm">
-                  ⚠️ This ticket will be permanently removed from the database and cannot be recovered.
-                </p>
-              </div>
             </div>
 
             {/* Modal Actions */}

@@ -114,7 +114,7 @@ export default function Home() {
     setError(null);
     
     try {
-      console.log('🏠 Creating ticket with data:', formData);
+      console.log('Creating ticket with data:', formData);
       
       // Validate Firebase connection first
       if (!db) {
@@ -151,7 +151,7 @@ export default function Home() {
         }
       }
       
-      console.log('💾 Attempting to save ticket to Firestore:', ticketDataForFirestore);
+      console.log('Attempting to save ticket to Firestore:', ticketDataForFirestore);
       
       // Test Firestore connection with a timeout
       const savePromise = addDoc(collection(db, 'tickets'), ticketDataForFirestore);
@@ -173,7 +173,7 @@ export default function Home() {
         if (avatarDataURL) {
           // Save ticket-specific avatar
           localStorage.setItem(`ticket-avatar-${docRef.id}`, avatarDataURL);
-          console.log('💾 Saved ticket-specific avatar for:', docRef.id);
+          console.log('Saved ticket-specific avatar for:', docRef.id);
         }
       }
       
@@ -185,13 +185,13 @@ export default function Home() {
       // CRITICAL: Add to ticket context for immediate dashboard update
       if (addTicket) {
         addTicket(finalTicketData);
-        console.log('➕ Added ticket to context for dashboard');
+        
       }
       
-      console.log('🎉 Ticket creation completed successfully!');
+
       
     } catch (error) {
-      console.error('❌ Detailed error creating ticket:', error);
+
       
       // More specific error messages
       let errorMessage = 'Failed to create ticket. ';
@@ -359,7 +359,7 @@ export default function Home() {
                           <br />
                           {currentUser 
                             ? 'Your ticket has been saved to your account and will appear in your dashboard!' 
-                            : 'Sign up to save tickets permanently and enable email delivery.'
+                            : 'Sign up to save tickets permanently, secure validation, and enable email delivery.'
                           }
                         </>
                       )}

@@ -131,10 +131,6 @@ export default function TicketForm({ onPreviewUpdate, onSubmitSuccess, initialDa
         
         setGeneratedTicketId(ticketId);
         
-        setSubmitStatus({ 
-          type: 'success', 
-          message: `🎉 Ticket created successfully!\nTicket ID: ${ticketId}\nStatus: active\nSign up to save tickets permanently and enable email delivery.`
-        });
         
         // Create the final ticket data with GUARANTEED ticket ID
         const finalTicketData = {
