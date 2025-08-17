@@ -299,7 +299,7 @@ export default function Home() {
         }
       } else {
         console.log('👤 User not signed up, saving ticket for post-signup email...');
-        setEmailStatus('📧 Sign up to receive your ticket via email!');
+        setEmailStatus('Sign up to receive your ticket via email!');
       }
 
     } catch (error) {
@@ -489,7 +489,7 @@ export default function Home() {
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 4.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 002 2z" />
                         </svg>
                         <div>
-                          <p className="font-medium text-gray-900 dark:text-white">Email sent successfully! Check your inbox</p>
+                          <p className="font-medium text-gray-900 dark:text-white">Email Status</p>
                           <p className="text-sm text-gray-700 dark:text-gray-300 mt-1">{emailStatus}</p>
                         </div>
                       </div>
@@ -513,12 +513,6 @@ export default function Home() {
                       </button>
                     )}
                     
-                    <button
-                      onClick={handleEdit}
-                      className="px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-                    >
-                      Create Another
-                    </button>
                   </div>
                 </div>
               )}

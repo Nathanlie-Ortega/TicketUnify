@@ -692,10 +692,6 @@ export default function Dashboard() {
               <p className="mt-1 text-sm text-gray-900 dark:text-white">{currentUser?.email}</p>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">User ID</label>
-              <p className="mt-1 text-sm text-gray-900 dark:text-white font-mono">{currentUser?.uid}</p>
-            </div>
-            <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Member Since</label>
               <p className="mt-1 text-sm text-gray-900 dark:text-white">
                 {currentUser?.metadata?.creationTime ? formatCreationDate(currentUser.metadata.creationTime) : 'Unknown'}
