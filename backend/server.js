@@ -1,4 +1,4 @@
-// server.js
+// backend/server.js - Updated with email routes
 
 const express = require('express');
 const cors = require('cors');
@@ -10,9 +10,12 @@ dotenv.config();
 const app = express();
 
 // Basic middleware
-app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(cors({
+  origin: ['http://localhost:3000', 'http://localhost:5173'], // Add Vite dev server port
+  credentials: true
+}));
+app.use(express.json({ limit: '10mb' })); // Increase limit for base64 images
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Initialize Firebase Admin (only if credentials are available)
 try {
@@ -52,6 +55,15 @@ try {
   console.log('⚠️  Ticket routes not loaded:', error.message);
 }
 
+// Add email routes
+try {
+  const emailRoutes = require('./routes/email');
+  app.use('/api/email', emailRoutes);
+  console.log('✅ Email routes loaded');
+} catch (error) {
+  console.log('⚠️  Email routes not loaded:', error.message);
+}
+
 // Health check route
 app.get('/health', (req, res) => {
   res.status(200).json({ 
@@ -62,6 +74,39 @@ app.get('/health', (req, res) => {
   });
 });
 
+// Test email route for quick testing
+app.post('/api/test-email', async (req, res) => {
+  try {
+    const { sendTicketEmail } = require('./services/emailService');
+    
+    const testTicketData = {
+      ticketId: 'TEST-123456',
+      fullName: 'Test User',
+      email: req.body.email || 'nathanilieortega.dev@gmail.com',
+      eventName: 'Test Event',
+      eventDate: '2025-08-16',
+      location: 'Dallas, TX',
+      ticketType: 'Standard'
+    };
+
+    console.log('🧪 Sending test email to:', testTicketData.email);
+    const result = await sendTicketEmail(testTicketData);
+
+    res.json({
+      success: true,
+      message: 'Test email sent successfully',
+      data: result
+    });
+  } catch (error) {
+    console.error('❌ Test email failed:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Test email failed',
+      error: error.message
+    });
+  }
+});
+
 // Root route
 app.get('/', (req, res) => {
   res.json({ 
@@ -70,7 +115,9 @@ app.get('/', (req, res) => {
     status: 'running',
     endpoints: {
       health: '/health',
-      tickets: '/api/tickets'
+      tickets: '/api/tickets',
+      email: '/api/email',
+      testEmail: '/api/test-email'
     }
   });
 });
@@ -99,9 +146,11 @@ const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log('\n🚀 =======================================');
   console.log(`📊 TicketUnify Backend Server Started`);
-  console.log(`🌍 Port: ${PORT}`);
+  console.log(`🌐 Port: ${PORT}`);
   console.log(`📡 Health Check: http://localhost:${PORT}/health`);
   console.log(`🎫 API Base: http://localhost:${PORT}/api`);
+  console.log(`📧 Email API: http://localhost:${PORT}/api/email`);
+  console.log(`🧪 Test Email: http://localhost:${PORT}/api/test-email`);
   console.log(`⏰ Started: ${new Date().toISOString()}`);
   console.log('=========================================\n');
 });

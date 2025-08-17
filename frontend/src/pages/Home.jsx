@@ -1,7 +1,7 @@
-// src/pages/Home.jsx - Fixed with proper TicketContext integration and profile picture handling
+// src/pages/Home.jsx - Updated with Backend Email Integration and Fixed Post-Signup Email
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { collection, addDoc } from 'firebase/firestore';
+import { collection, addDoc, updateDoc, doc } from 'firebase/firestore';
 import { db } from '../utils/firebase';
 import TicketForm from '../components/TicketForm';
 import TicketPreview from '../components/TicketPreview';
@@ -36,6 +36,7 @@ export default function Home() {
   const [createdTicket, setCreatedTicket] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState(null);
+  const [emailStatus, setEmailStatus] = useState('');
   const { currentUser } = useAuth();
   const { addTicket } = useTickets(); // Use the ticket context
   const navigate = useNavigate();
@@ -92,6 +93,53 @@ export default function Home() {
     }
   };
 
+  // Function to call backend email service
+  const sendTicketEmail = async (ticketData, userEmail = null) => {
+    try {
+      console.log('📧 Calling backend email service...');
+      
+      // Prepare recipients (both account email and ticket email if different)
+      const recipients = [];
+      if (userEmail) recipients.push(userEmail);
+      if (ticketData.email && ticketData.email !== userEmail) {
+        recipients.push(ticketData.email);
+      }
+      
+      const response = await fetch('http://localhost:5000/api/email/send-ticket', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          ticketData: {
+            ticketId: ticketData.ticketId,
+            fullName: ticketData.fullName,
+            email: ticketData.email,
+            eventName: ticketData.eventName,
+            eventDate: ticketData.eventDate,
+            location: ticketData.location,
+            ticketType: ticketData.ticketType,
+            avatarUrl: ticketData.avatarUrl
+          },
+          recipients: recipients.length > 0 ? recipients : [ticketData.email]
+        })
+      });
+
+      const result = await response.json();
+      
+      if (result.success) {
+        console.log('✅ Email sent successfully:', result);
+        return result;
+      } else {
+        console.error('❌ Email sending failed:', result);
+        throw new Error(result.message || 'Failed to send email');
+      }
+    } catch (error) {
+      console.error('❌ Error calling email service:', error);
+      throw error;
+    }
+  };
+
   // Handle real-time preview updates (no backend call)
   const handlePreviewUpdate = async (data, file) => {
     console.log('Preview update:', data);
@@ -106,12 +154,14 @@ export default function Home() {
     
     // Clear any previous errors when user makes changes
     setError(null);
+    setEmailStatus('');
   };
 
-  // Handle actual form submission - IMPROVED WITH CONTEXT INTEGRATION
+  // Handle actual form submission - UPDATED WITH EMAIL INTEGRATION
   const handleFormSubmit = async (formData) => {
     setIsSubmitting(true);
     setError(null);
+    setEmailStatus('');
     
     try {
       console.log('Creating ticket with data:', formData);
@@ -140,7 +190,10 @@ export default function Home() {
         status: 'active',
         checkedIn: false,
         createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
+        updatedAt: new Date().toISOString(),
+        // Email status tracking
+        emailSent: false,
+        emailError: null
       };
       
       // Add avatar URL to ticket data if available
@@ -185,15 +238,72 @@ export default function Home() {
       // CRITICAL: Add to ticket context for immediate dashboard update
       if (addTicket) {
         addTicket(finalTicketData);
-        
       }
-      
 
-      
+      // Save ticket data for post-signup email delivery
+      const ticketDataForEmail = {
+        ticketId: finalTicketData.ticketId,
+        fullName: finalTicketData.fullName,
+        email: finalTicketData.email,
+        eventName: finalTicketData.eventName,
+        eventDate: finalTicketData.eventDate,
+        location: finalTicketData.location,
+        ticketType: finalTicketData.ticketType,
+        avatarUrl: finalTicketData.avatarUrl,
+        firestoreId: docRef.id, // Add Firestore document ID for later updates
+        timestamp: Date.now(),
+        needsEmail: true // ✅ CRITICAL: This flag tells Register.jsx to send email
+      };
+      localStorage.setItem('recentTicketData', JSON.stringify(ticketDataForEmail));
+      console.log('💾 Saved ticket data for potential post-signup email with needsEmail=true');
+
+      // 🆕 NEW: Send email if user is signed up
+      if (currentUser) {
+        try {
+
+          
+          await sendTicketEmail(finalTicketData, currentUser.email);
+          
+          // Update ticket with email sent status
+          const emailRecipients = [currentUser.email];
+          if (finalTicketData.email && finalTicketData.email !== currentUser.email) {
+            emailRecipients.push(finalTicketData.email);
+          }
+          
+          await updateDoc(doc(db, 'tickets', docRef.id), {
+            emailSent: true,
+            emailSentAt: new Date().toISOString(),
+            emailRecipients: emailRecipients
+          });
+          
+          // Update local ticket data
+          finalTicketData.emailSent = true;
+          finalTicketData.emailSentAt = new Date().toISOString();
+          finalTicketData.emailRecipients = emailRecipients;
+          
+
+        } catch (emailError) {
+
+          
+          // Update ticket with email error
+          await updateDoc(doc(db, 'tickets', docRef.id), {
+            emailError: emailError.message,
+            emailErrorAt: new Date().toISOString()
+          });
+          
+          // Update local ticket data
+          finalTicketData.emailError = emailError.message;
+          finalTicketData.emailErrorAt = new Date().toISOString();
+          
+          setEmailStatus('⚠️ Ticket created but email failed to send. You can resend from dashboard.');
+        }
+      } else {
+        console.log('👤 User not signed up, saving ticket for post-signup email...');
+        setEmailStatus('📧 Sign up to receive your ticket via email!');
+      }
+
     } catch (error) {
-
-      
-      // More specific error messages
+      // Error handling remains the same...
       let errorMessage = 'Failed to create ticket. ';
       
       if (error.code === 'permission-denied') {
@@ -226,6 +336,7 @@ export default function Home() {
     setPreviewMode(false);
     setCreatedTicket(null);
     setError(null);
+    setEmailStatus('');
   };
 
   // Navigate to register page and handle profile picture for account creation only
@@ -289,8 +400,6 @@ export default function Home() {
             </button>
           </div>
         )}
-        
-
       </div>
 
       {/* Main Content */}
@@ -345,10 +454,10 @@ export default function Home() {
                 <div className="space-y-4">
                   <div className="p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
                     <p className="text-green-800 dark:text-green-400 font-medium">
-                          {currentUser 
-                            ? "✓ Ticket created and saved successfully!"
-                            : "✓ Temporary ticket created and saved successfully!"
-                          }
+                      {currentUser 
+                        ? "✅ Ticket created and saved successfully!"
+                        : "✅ Temporary ticket created and saved successfully!"
+                      }
                     </p>
                     <p className="text-green-700 dark:text-green-300 text-sm mt-1">
                       {createdTicket && (
@@ -365,15 +474,35 @@ export default function Home() {
                       )}
                     </p>
                   </div>
+
+                  {/* Email Status Display */}
+                  {emailStatus && (
+                    <div className={`p-4 rounded-lg border ${
+                      emailStatus.includes('✅') 
+                        ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800' 
+                        : emailStatus.includes('⚠️')
+                        ? 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800'
+                        : 'bg-gray-50 dark:bg-gray-900/20 border-gray-200 dark:border-gray-800'
+                    }`}>
+                      <div className="flex items-start gap-3">
+                        <svg className="w-5 h-5 mt-0.5 flex-shrink-0 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 4.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 002 2z" />
+                        </svg>
+                        <div>
+                          <p className="font-medium text-gray-900 dark:text-white">Email sent successfully! Check your inbox</p>
+                          <p className="text-sm text-gray-700 dark:text-gray-300 mt-1">{emailStatus}</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                   
                   <div className="flex gap-3">
-                    
                     {!currentUser ? (
                       <button
                         onClick={handleSignUp}
                         className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                       >
-                        Sign Up to Save
+                        Sign Up to Save & Get Email
                       </button>
                     ) : (
                       <button
@@ -383,6 +512,13 @@ export default function Home() {
                         View Dashboard
                       </button>
                     )}
+                    
+                    <button
+                      onClick={handleEdit}
+                      className="px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                    >
+                      Create Another
+                    </button>
                   </div>
                 </div>
               )}
@@ -410,7 +546,9 @@ export default function Home() {
                 </div>
                 <div>
                   <h3 className="font-semibold text-gray-900 dark:text-white">Email Delivery</h3>
-                  <p className="text-sm text-gray-600 dark:text-gray-400">Instant PDF tickets</p>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                    {currentUser ? 'PDF tickets via email' : 'Sign up to enable'}
+                  </p>
                 </div>
               </div>
             </div>
@@ -429,7 +567,6 @@ export default function Home() {
           </div>
         </div>
       </div>
-
     </div>
   );
 }

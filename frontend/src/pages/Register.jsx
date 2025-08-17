@@ -1,4 +1,4 @@
-// src/pages/Register.jsx - Updated with auto check-in support
+// src/pages/Register.jsx - Updated with post-signup email delivery
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -43,6 +43,132 @@ export default function Register() {
       }
     }
   }, [fromValidation, ticketId]);
+
+  // 🆕 Function to send emails for tickets created before signup
+  const handlePostSignupEmailDelivery = async (user) => {
+    try {
+      console.log('🔍 === POST-SIGNUP EMAIL DELIVERY DEBUG ===');
+      console.log('📧 Checking for tickets to send emails...');
+      console.log('User object:', user);
+      console.log('Form data:', formData);
+      
+      // Get recent ticket data from localStorage (set during ticket creation)
+      const recentTicketData = localStorage.getItem('recentTicketData');
+      console.log('Raw localStorage data:', recentTicketData);
+      
+      if (!recentTicketData) {
+        console.log('❌ No recent ticket data found in localStorage');
+        console.log('Available localStorage keys:', Object.keys(localStorage));
+        return;
+      }
+      
+      const ticketData = JSON.parse(recentTicketData);
+      console.log('✅ Found recent ticket:', ticketData);
+      
+      // Check if this ticket needs email and email matches
+      if (!ticketData.needsEmail) {
+        console.log('❌ Ticket does not need email delivery (needsEmail flag is false)');
+        return;
+      }
+      
+      console.log('✅ Ticket needs email delivery');
+      console.log('Comparing emails:');
+      console.log('  - Ticket email:', ticketData.email);
+      console.log('  - User email:', user.email);
+      console.log('  - Form email:', formData.email);
+      
+      // Only send email if the ticket email matches the signup email
+      if (ticketData.email === user.email || ticketData.email === formData.email) {
+        console.log('✅ Email match found! Proceeding with email send...');
+        console.log('📧 Sending email for ticket:', ticketData.ticketId);
+        
+        // Prepare ticket data for email
+        const emailTicketData = {
+          ticketId: ticketData.ticketId,
+          fullName: ticketData.fullName || formData.fullName,
+          email: user.email,
+          eventName: ticketData.eventName,
+          eventDate: ticketData.eventDate,
+          location: ticketData.location,
+          ticketType: ticketData.ticketType,
+          avatarUrl: ticketData.avatarUrl
+        };
+        
+        console.log('📨 Email payload:', emailTicketData);
+        
+        // Send email via backend
+        console.log('🌐 Calling backend API...');
+        const response = await fetch('http://localhost:5000/api/email/send-ticket', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            ticketData: emailTicketData,
+            recipients: [user.email]
+          })
+        });
+        
+        console.log('📡 Backend response status:', response.status);
+        const result = await response.json();
+        console.log('📡 Backend response data:', result);
+        
+        if (result.success) {
+          console.log('✅ Post-signup email sent successfully');
+          
+          // Update the Firestore document to mark email as sent
+          if (ticketData.firestoreId) {
+            try {
+              console.log('🔥 Updating Firestore document:', ticketData.firestoreId);
+              // Import Firebase functions
+              const { doc, updateDoc } = await import('firebase/firestore');
+              const { db } = await import('../utils/firebase');
+              
+              await updateDoc(doc(db, 'tickets', ticketData.firestoreId), {
+                emailSent: true,
+                emailSentAt: new Date().toISOString(),
+                emailRecipients: [user.email],
+                userId: user.uid, // Link ticket to user
+                userEmail: user.email
+              });
+              
+              console.log('✅ Firestore ticket updated with email status');
+            } catch (firestoreError) {
+              console.error('❌ Failed to update Firestore:', firestoreError);
+            }
+          }
+          
+          // Clear the localStorage data since email was sent
+          localStorage.removeItem('recentTicketData');
+          console.log('🗑️ Cleared localStorage data');
+          
+          toast.success('📧 Welcome email with your ticket has been sent!', {
+            duration: 4000
+          });
+        } else {
+          console.error('❌ Failed to send post-signup email:', result);
+          toast.error('Account created but email failed to send. Check your dashboard.', {
+            duration: 4000
+          });
+        }
+      } else {
+        console.log('❌ Email mismatch - not sending email');
+        console.log('  - Ticket email:', ticketData.email);
+        console.log('  - User email:', user.email);
+        console.log('  - Form email:', formData.email);
+        console.log('  - Match check 1 (ticket === user):', ticketData.email === user.email);
+        console.log('  - Match check 2 (ticket === form):', ticketData.email === formData.email);
+      }
+      
+      console.log('🔍 === END POST-SIGNUP EMAIL DELIVERY DEBUG ===');
+      
+    } catch (error) {
+      console.error('❌ Error in post-signup email delivery:', error);
+      toast.error('Account created but email delivery failed. Check your dashboard.', {
+        duration: 4000
+      });
+    }
+  };
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -92,7 +218,7 @@ export default function Register() {
 
     setLoading(true);
     try {
-      console.log('🔄 Starting signup process...', {
+      console.log('📄 Starting signup process...', {
         fromValidation,
         autoCheckIn,
         ticketId
@@ -107,6 +233,9 @@ export default function Register() {
       const result = await signup(formData.email, formData.password, formData.fullName, signupOptions);
       
       console.log('✅ Signup successful:', result);
+      
+      // 🆕 NEW: Send emails for any tickets created before signup
+      await handlePostSignupEmailDelivery(result.user);
       
       // Show appropriate success message based on context
       if (fromValidation && autoCheckIn) {
