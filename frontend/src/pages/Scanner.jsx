@@ -9,58 +9,77 @@ import { formatDate } from '../utils/helpers';
 import toast from 'react-hot-toast';
 
 export default function Scanner() {
-  const { checkInTicket, getTicket } = useTickets();
+const { updateTicketCheckin, findTicket, getTicketFromFirestore } = useTickets();
   const [isScanning, setIsScanning] = useState(false);
   const [scanResult, setScanResult] = useState(null);
   const [loading, setLoading] = useState(false);
 
-  const handleScanSuccess = async (ticketId) => {
-    setLoading(true);
-    try {
-      // First get ticket details
-      const ticket = await getTicket(ticketId);
-      if (!ticket) {
-        setScanResult({
-          success: false,
-          message: 'Ticket not found',
-          ticketId
-        });
-        return;
-      }
 
-      // Check if already checked in
-      if (ticket.checkedIn) {
-        setScanResult({
-          success: false,
-          message: 'Ticket already checked in',
-          ticket,
-          ticketId
-        });
-        return;
-      }
 
-      // Check in the ticket
-      await checkInTicket(ticketId);
-      setScanResult({
-        success: true,
-        message: 'Ticket checked in successfully!',
-        ticket: { ...ticket, checkedIn: true },
-        ticketId
-      });
-      toast.success('Ticket validated successfully!');
-    } catch (error) {
-      console.error('Error processing ticket:', error);
+const handleScanSuccess = async (ticketId) => {
+  setLoading(true);
+  try {
+    console.log('🎫 Scanned ticket ID:', ticketId);
+    
+    // First try local tickets (fast)
+    let ticket = findTicket(ticketId);
+    
+    // If not found locally, query Firestore (for other users' tickets)
+    if (!ticket) {
+      console.log('🔍 Ticket not in local cache, querying Firestore...');
+      ticket = await getTicketFromFirestore(ticketId);
+    }
+    
+    if (!ticket) {
       setScanResult({
         success: false,
-        message: error.message || 'Failed to validate ticket',
+        message: 'Ticket not found',
         ticketId
       });
-      toast.error('Failed to validate ticket');
-    } finally {
-      setLoading(false);
-      setIsScanning(false);
+      toast.error('Ticket not found');
+      return;
     }
-  };
+
+    // Check if already checked in
+    if (ticket.checkedIn) {
+      setScanResult({
+        success: false,
+        message: 'Ticket already checked in',
+        ticket,
+        ticketId
+      });
+      toast.error('This ticket has already been checked in');
+      return;
+    }
+
+    // Check in the ticket
+    await updateTicketCheckin(ticket.id, true);
+    
+    setScanResult({
+      success: true,
+      message: 'Ticket checked in successfully!',
+      ticket: { ...ticket, checkedIn: true },
+      ticketId
+    });
+    toast.success('✅ Ticket validated successfully!');
+    
+  } catch (error) {
+    console.error('❌ Error processing ticket:', error);
+    setScanResult({
+      success: false,
+      message: error.message || 'Failed to validate ticket',
+      ticketId
+    });
+    toast.error('Failed to validate ticket');
+  } finally {
+    setLoading(false);
+    setIsScanning(false);
+  }
+};
+
+
+
+
 
   const handleScanError = (error) => {
     console.error('Scan error:', error);
@@ -191,7 +210,7 @@ export default function Scanner() {
         <ul className="text-sm text-blue-800 dark:text-blue-200 space-y-1">
           <li>• Make sure the QR code is clearly visible and well-lit</li>
           <li>• Hold the device steady while scanning</li>
-          <li>• You can also upload an image of the QR code</li>
+          <li>• You can also upload an image or PDF of the QR code</li>
           <li>• Each ticket can only be checked in once</li>
         </ul>
       </div>

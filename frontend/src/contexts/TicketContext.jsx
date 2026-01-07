@@ -1,6 +1,6 @@
 // src/contexts/TicketContext.jsx - Updated with delete functionality
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { collection, getDocs, doc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { collection, getDocs, doc, updateDoc, deleteDoc, query, where } from 'firebase/firestore';
 import { db } from '../utils/firebase';
 import { useAuth } from './AuthContext';
 
@@ -201,6 +201,33 @@ export function TicketProvider({ children }) {
     );
   };
 
+  // Get a single ticket from Firestore by ticketId (for scanning)
+const getTicketFromFirestore = async (ticketId) => {
+  try {
+    console.log('🔍 Querying Firestore for ticket:', ticketId);
+    
+    // Query Firestore for the ticket
+    const ticketsRef = collection(db, 'tickets');
+    const q = query(ticketsRef, where('ticketId', '==', ticketId));
+    const querySnapshot = await getDocs(q);
+    
+    if (querySnapshot.empty) {
+      console.log('❌ Ticket not found in Firestore:', ticketId);
+      return null;
+    }
+    
+    const ticketDoc = querySnapshot.docs[0];
+    const ticket = { id: ticketDoc.id, ...ticketDoc.data() };
+    
+    console.log('✅ Found ticket in Firestore:', ticket);
+    return ticket;
+    
+  } catch (error) {
+    console.error('❌ Error getting ticket from Firestore:', error);
+    throw error;
+  }
+};
+
   // Clear tickets (for logout)
   const clearTickets = () => {
     console.log('🧹 Clearing tickets from context');
@@ -219,18 +246,19 @@ export function TicketProvider({ children }) {
     }
   }, [currentUser?.uid]); // Only depend on UID to avoid infinite loops
 
-  const value = {
-    tickets,
-    loading,
-    error,
-    getUserTickets,
-    addTicket,
-    deleteTicket,
-    updateTicketCheckin,
-    getTicketStats,
-    findTicket,
-    clearTickets
-  };
+const value = {
+  tickets,
+  loading,
+  error,
+  getUserTickets,
+  addTicket,
+  deleteTicket,
+  updateTicketCheckin,
+  getTicketStats,
+  findTicket,
+  getTicketFromFirestore,  // ADD THIS LINE
+  clearTickets
+};
 
   return (
     <TicketContext.Provider value={value}>

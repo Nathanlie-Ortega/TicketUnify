@@ -134,25 +134,22 @@ export default function Register() {
               
               console.log('✅ Firestore ticket updated with email status');
             } catch (firestoreError) {
-              console.error('❌ Failed to update Firestore:', firestoreError);
+              console.error('Failed to update Firestore:', firestoreError);
             }
           }
           
           // Clear the localStorage data since email was sent
           localStorage.removeItem('recentTicketData');
-          console.log('🗑️ Cleared localStorage data');
+          console.log('Cleared localStorage data');
           
-          toast.success('📧 Welcome email with your ticket has been sent!', {
-            duration: 4000
-          });
         } else {
-          console.error('❌ Failed to send post-signup email:', result);
+          console.error('Failed to send post-signup email:', result);
           toast.error('Account created but email failed to send. Check your dashboard.', {
             duration: 4000
           });
         }
       } else {
-        console.log('❌ Email mismatch - not sending email');
+        console.log(' Email mismatch - not sending email');
         console.log('  - Ticket email:', ticketData.email);
         console.log('  - User email:', user.email);
         console.log('  - Form email:', formData.email);
