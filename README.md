@@ -9,9 +9,10 @@ A professional full-stack web application for generating, managing, and validati
 - **Email Delivery**: Automated PDF ticket delivery via email
 - **Real-time Validation**: Instant QR code scanning and check-in system
 - **Admin Dashboard**: Complete event management with analytics
-- **Payment Integration**: Stripe integration for paid tickets
+- **Payment Integration**: Implemented Stripe payment integration in test mode for secure payment processing. The application demonstrates proper payment flow handling, error management, and webhook integration, but uses Stripe's test environment to ensure no real transactions occur
 - **Export Functionality**: CSV exports for attendee data
 - **Responsive Design**: Mobile-first, accessible interface
+- **Event Time Grace**: There's a 30 minutes time grace after the Event Time passed by to become expired and cannot be used for entry.
 
 ## Tech Stack
 
@@ -66,10 +67,20 @@ npm run dev
 **Backend:**
 ```bash
 cd backend
+npm install
 npm run dev
 ```
 
 Visit `http://localhost:3000` to see the application.
+
+**NPM Packages Frontend for Scanner Feature:**
+npm install jsqr
+npm install pdfjs-dist
+
+**Install Backend Stripe:**
+npm install @stripe/stripe-js @stripe/react-stripe-js
+
+
 
 ## API Endpoints
 

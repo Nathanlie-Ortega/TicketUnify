@@ -2,18 +2,11 @@
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const logger = require('../utils/logger');
 
-// 💡 STRIPE TESTING GUIDE:
-// Test Card Numbers: https://docs.stripe.com/testing
-// - Success: 4242424242424242
-// - Decline: 4000000000000002  
-// - Requires 3D Secure: 4000002500003155
-// - Insufficient funds: 4000000000009995
 
 // Ticket pricing configuration
 const TICKET_PRICES = {
   Standard: { amount: 0, currency: 'usd', name: 'Standard Ticket' },      // Free
-  Premium: { amount: 4900, currency: 'usd', name: 'Premium Ticket' },     // $49.00
-  VIP: { amount: 9900, currency: 'usd', name: 'VIP Ticket' }             // $99.00
+  Premium: { amount: 499, currency: 'usd', name: 'Premium Ticket' },     // $4.99
 };
 
 // @desc    Create Stripe checkout session for ticket purchase
@@ -183,7 +176,7 @@ const handleSuccessfulPayment = async (sessionId) => {
   }
 };
 
-// @desc    Create payment intent for custom checkout
+// @desc    
 const createPaymentIntent = async ({ ticketData, metadata = {} }) => {
   try {
     const { ticketType, eventName, userName, userEmail, ticketId } = ticketData;
@@ -196,6 +189,10 @@ const createPaymentIntent = async ({ ticketData, metadata = {} }) => {
     const paymentIntent = await stripe.paymentIntents.create({
       amount: priceInfo.amount,
       currency: priceInfo.currency,
+      automatic_payment_methods: {
+        enabled: true,
+        allow_redirects: 'never',
+      },
       metadata: {
         ticketId,
         eventName,
@@ -206,10 +203,6 @@ const createPaymentIntent = async ({ ticketData, metadata = {} }) => {
       },
       description: `${priceInfo.name} for ${eventName}`,
       receipt_email: userEmail,
-      // Enable automatic confirmation
-      confirm: false,
-      // Add shipping information if needed
-      shipping: null
     });
 
     logger.info('Payment intent created', {

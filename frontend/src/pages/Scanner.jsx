@@ -8,6 +8,22 @@ import { QrCode, CheckCircle, AlertCircle, Scan } from 'lucide-react';
 import { formatDate } from '../utils/helpers';
 import toast from 'react-hot-toast';
 
+
+// Format time helper function
+const formatTime = (timeString) => {
+  if (!timeString) return 'N/A';
+  try {
+    const [hours, minutes] = timeString.split(':');
+    const hour = parseInt(hours, 10);
+    const ampm = hour >= 12 ? 'PM' : 'AM';
+    const displayHour = hour % 12 || 12;
+    return `${displayHour}:${minutes} ${ampm}`;
+  } catch (error) {
+    return timeString;
+  }
+};
+
+
 export default function Scanner() {
 const { updateTicketCheckin, findTicket, getTicketFromFirestore } = useTickets();
   const [isScanning, setIsScanning] = useState(false);
@@ -57,7 +73,7 @@ const handleScanSuccess = async (ticketId) => {
     
     setScanResult({
       success: true,
-      message: 'Ticket checked in successfully!',
+      message: '',
       ticket: { ...ticket, checkedIn: true },
       ticketId
     });
@@ -106,7 +122,7 @@ const handleScanSuccess = async (ticketId) => {
       <div className="bg-white dark:bg-gray-800 border border-blue-600 dark:border-gray-700 rounded-xl shadow-lg p-6 transition-colors">
         {!scanResult ? (
           <div className="text-center space-y-6">
-            <div className="w-24 h-24 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center mx-auto">
+            <div className="w-24 h-24 bg-blue-300 dark:bg-blue-900 rounded-full flex items-center justify-center mx-auto">
               <QrCode size={48} className="text-blue-600 dark:text-blue-400" />
             </div>
             
@@ -161,20 +177,38 @@ const handleScanSuccess = async (ticketId) => {
                 <h3 className="font-semibold text-gray-900 dark:text-white mb-3">Ticket Details</h3>
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between">
-                    <span className="text-gray-600 dark:text-gray-400">Name:</span>
-                    <span className="font-medium text-gray-900 dark:text-white">{scanResult.ticket.userName}</span>
+                    <span className="text-gray-600 dark:text-gray-400">Attendee Name:</span>
+                    <span className="font-medium text-gray-900 dark:text-white">{scanResult.ticket.fullName || scanResult.ticket.userName}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-gray-600 dark:text-gray-400">Event:</span>
                     <span className="font-medium text-gray-900 dark:text-white">{scanResult.ticket.eventName}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-gray-600 dark:text-gray-400">Type:</span>
+                    <span className="text-gray-600 dark:text-gray-400">Date:</span>
+                    <span className="font-medium text-gray-900 dark:text-white">{formatDate(scanResult.ticket.eventDate)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600 dark:text-gray-400">Time:</span>
+                    <span className="font-medium text-gray-900 dark:text-white">{scanResult.ticket.eventTime ? formatTime(scanResult.ticket.eventTime) : 'N/A'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600 dark:text-gray-400">Location:</span>
+                    <span className="font-medium text-gray-900 dark:text-white">{scanResult.ticket.location}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600 dark:text-gray-400">Ticket Type:</span>
                     <span className="font-medium text-gray-900 dark:text-white">{scanResult.ticket.ticketType}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-gray-600 dark:text-gray-400">Date:</span>
-                    <span className="font-medium text-gray-900 dark:text-white">{formatDate(scanResult.ticket.eventDate)}</span>
+                    <span className="text-gray-600 dark:text-gray-400">Status:</span>
+                    <span className={`font-medium ${
+                      scanResult.ticket.checkedIn 
+                        ? 'text-green-600 dark:text-green-400' 
+                        : 'text-blue-600 dark:text-blue-400'
+                    }`}>
+                      {scanResult.ticket.checkedIn ? 'Checked In' : 'Valid - Entry Confirmed'}
+                    </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-gray-600 dark:text-gray-400">Ticket ID:</span>
@@ -195,6 +229,7 @@ const handleScanSuccess = async (ticketId) => {
               </Button>
             </div>
           </div>
+          
         )}
 
         {loading && (
@@ -205,7 +240,7 @@ const handleScanSuccess = async (ticketId) => {
       </div>
 
       {/* Instructions */}
-      <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+      <div className="bg-blue-50 dark:bg-blue-900/20 border-2 border-blue-600 dark:border-blue-800 rounded-lg p-4">
         <h3 className="font-semibold text-blue-900 dark:text-blue-100 mb-2">Scanning Instructions</h3>
         <ul className="text-sm text-blue-800 dark:text-blue-200 space-y-1">
           <li>• Make sure the QR code is clearly visible and well-lit</li>

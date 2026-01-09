@@ -90,9 +90,74 @@ export default function Dashboard() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Get stats from ticket context
-  const stats = getTicketStats();
 
+
+  // Get stats from ticket context with custom upcoming events calculation
+    const baseStats = getTicketStats();
+
+// Calculate upcoming events based on date AND time
+    const upcomingEvents = tickets.filter(ticket => {
+      console.log('📊 Checking ticket for upcoming:', {
+        eventName: ticket.eventName,
+        hasEventDate: !!ticket.eventDate,
+        hasEventTime: !!ticket.eventTime,
+        eventDate: ticket.eventDate,
+        eventTime: ticket.eventTime,
+        checkedIn: ticket.checkedIn
+      });
+      
+      // Skip if missing required fields
+      if (!ticket.eventDate || !ticket.eventTime) {
+        console.log('❌ Skipping - missing date or time');
+        return false;
+      }
+      
+      // Don't count already checked-in tickets
+      if (ticket.checkedIn) {
+        console.log('❌ Skipping - already checked in');
+        return false;
+      }
+      
+      try {
+        // Combine date and time into proper datetime
+        const eventDateTime = new Date(`${ticket.eventDate}T${ticket.eventTime}:00`);
+        
+        // Add 30-minute grace period
+        const gracePeriodMinutes = 30;
+        const expirationTime = new Date(eventDateTime.getTime() + (gracePeriodMinutes * 60 * 1000));
+        
+        // Get current time
+        const now = new Date();
+        
+        // Event is upcoming if current time is before expiration time
+        const isUpcoming = now < expirationTime;
+        
+        console.log(' Time check:', {
+          eventDateTime: eventDateTime.toLocaleString(),
+          expirationTime: expirationTime.toLocaleString(),
+          now: now.toLocaleString(),
+          isUpcoming: isUpcoming
+        });
+        
+        return isUpcoming;
+      } catch (error) {
+        console.error(' Error checking upcoming event:', error);
+        return false;
+      }
+    }).length;
+
+    // Use custom upcoming events count
+    const stats = {
+      ...baseStats,
+      upcomingEvents: upcomingEvents
+    };
+
+
+
+
+
+
+  
   // Check if user is new (signed up recently) vs returning (sign in)
   const isNewUser = () => {
     if (!currentUser?.metadata) return false;
@@ -106,12 +171,47 @@ export default function Dashboard() {
   const formatDate = (dateString) => {
     if (!dateString) return '';
     try {
-      const date = new Date(dateString + 'T00:00:00'); // Add time to prevent timezone issues
+      const date = new Date(dateString + 'T00:00:00');
       return format(date, 'MMM dd, yyyy');
     } catch (error) {
       return dateString;
     }
   };
+
+
+  const formatTime = (timeString) => {
+    if (!timeString) return '';
+    try {
+      const [hours, minutes] = timeString.split(':');
+      const hour = parseInt(hours, 10);
+      const ampm = hour >= 12 ? 'PM' : 'AM';
+      const displayHour = hour % 12 || 12;
+      return `${displayHour}:${minutes} ${ampm}`;
+    } catch (error) {
+      return timeString;
+    }
+  };
+
+
+  const isTicketExpired = (ticket) => {
+  if (!ticket.eventDate || !ticket.eventTime) return false;
+  
+  try {
+    // Combine date and time into a single datetime
+    const eventDateTime = new Date(`${ticket.eventDate}T${ticket.eventTime}`);
+    
+    //30 minutes grace period after event start time
+    const gracePeriodMinutes = 30;
+    const expirationTime = new Date(eventDateTime.getTime() + gracePeriodMinutes * 60000);
+    
+    // Check if current time is past the expiration time
+    const now = new Date();
+    return now > expirationTime;
+  } catch (error) {
+    console.error('Error checking ticket expiration:', error);
+    return false;
+  }
+};
 
   // Format creation date with proper timezone and 12-hour format
   const formatCreationDate = (dateString) => {
@@ -136,12 +236,14 @@ export default function Dashboard() {
 
   const getTicketStatusColor = (ticket) => {
     if (ticket.checkedIn) return 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400';
+    if (isTicketExpired(ticket)) return 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-400';
     if (ticket.status === 'active') return 'bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-400';
     return 'bg-gray-100 text-gray-800 dark:bg-gray-900/20 dark:text-gray-400';
   };
 
   const getTicketStatusText = (ticket) => {
     if (ticket.checkedIn) return 'Checked In';
+    if (isTicketExpired(ticket)) return 'Expired';
     if (ticket.status === 'active') return 'Active';
     return 'Inactive';
   };
@@ -164,7 +266,7 @@ export default function Dashboard() {
     setDeletingTicket(deleteModal.ticket.id);
     
     try {
-      console.log('🗑️ Deleting ticket:', deleteModal.ticket.id);
+      console.log(' Deleting ticket:', deleteModal.ticket.id);
       
       // Delete from Firestore
       await deleteDoc(doc(db, 'tickets', deleteModal.ticket.id));
@@ -182,11 +284,11 @@ export default function Dashboard() {
       // Refresh tickets to update the UI and stats
       await getUserTickets(true);
       
-      console.log('✅ Ticket deleted successfully');
+      console.log(' Ticket deleted successfully');
       closeDeleteModal();
       
     } catch (error) {
-      console.error('❌ Error deleting ticket:', error);
+      console.error(' Error deleting ticket:', error);
       alert('Failed to delete ticket. Please try again.');
     } finally {
       setDeletingTicket(null);
@@ -342,7 +444,7 @@ export default function Dashboard() {
               display: flex;
               align-items: center;
             ">
-              🎫 ${ticket.ticketType} Ticket
+               ${ticket.ticketType} Ticket
             </div>
           </div>
 
@@ -470,7 +572,10 @@ export default function Dashboard() {
 
 
   return (
-    <div className="max-w-6xl mx-auto">
+    <div className="max-w-6xl mx-auto" style={{ backgroundImage: 'none', position: 'relative', zIndex: 1 }}>
+    {/* Block any background patterns */}
+    <div className="fixed inset-0 bg-gray-50 dark:bg-gray-900 -z-10" />
+
       {/* Header with Welcome vs Welcome Back */}
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">
@@ -485,7 +590,7 @@ export default function Dashboard() {
       <div className="grid md:grid-cols-3 gap-6 mb-8">
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 transition-colors border-2 border-blue-600 dark:border-gray-700">
           <div className="flex items-center">
-            <div className="p-3 bg-blue-100 dark:bg-blue-900 rounded-lg">
+            <div className="p-3 bg-blue-300 dark:bg-blue-900 rounded-lg">
               <Ticket className="w-6 h-6 text-blue-600 dark:text-blue-400" />
             </div>
             <div className="ml-4">
@@ -497,7 +602,7 @@ export default function Dashboard() {
 
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 transition-colors border-2 border-blue-600 dark:border-gray-700">
           <div className="flex items-center">
-            <div className="p-3 bg-green-100 dark:bg-green-900 rounded-lg">
+            <div className="p-3 bg-green-300 dark:bg-green-900 rounded-lg">
               <QrCode className="w-6 h-6 text-green-600 dark:text-green-400" />
             </div>
             <div className="ml-4">
@@ -509,7 +614,7 @@ export default function Dashboard() {
 
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 transition-colors border-2 border-blue-600 dark:border-gray-700">
           <div className="flex items-center">
-            <div className="p-3 bg-purple-100 dark:bg-purple-900 rounded-lg">
+            <div className="p-3 bg-purple-300 dark:bg-purple-900 rounded-lg">
               <Calendar className="w-6 h-6 text-purple-600 dark:text-purple-400" />
             </div>
             <div className="ml-4">
@@ -519,6 +624,10 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
+
+
+
 
       {/* Tabs */}
       <div className="border-b border-gray-200 dark:border-gray-700 mb-6">
@@ -571,7 +680,8 @@ export default function Dashboard() {
           ) : (
             <div className="grid gap-8">
               {tickets.map((ticket) => (
-                <div key={ticket.id} className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-visible transition-colors min-h-[200px] border-2 border-blue-600 dark:border-gray-700">
+
+                <div key={ticket.id} className="bg-white dark:bg-gray-800 rounded-lg shadow-md dark:shadow-none overflow-hidden transition-colors min-h-[200px] border-2 border-blue-600 dark:border-gray-800">
                   <div className="p-6">
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
@@ -585,10 +695,16 @@ export default function Dashboard() {
                         </div>
                         
                         <div className="space-y-2 text-gray-600 dark:text-gray-300">
-                          <div className="flex items-center gap-2">
-                            <Calendar size={16} />
-                            <span>{formatDate(ticket.eventDate)}</span>
-                          </div>
+
+
+                        <div className="flex items-center gap-2">
+                          <Calendar size={16} />
+                          <span>
+                            {formatDate(ticket.eventDate)}
+                            {ticket.eventTime && ` • ${formatTime(ticket.eventTime)}`}
+                          </span>
+                        </div>
+                          
                           <div className="flex items-center gap-2">
                             <MapPin size={16} />
                             <span>{ticket.location}</span>
@@ -608,14 +724,15 @@ export default function Dashboard() {
                       </div>
                     </div>
 
-                    <div className="mt-8 flex items-center justify-between pt-4 border-t-2 border-blue-600 dark:border-gray-700">
+                      <div className="mt-8 flex items-center justify-between pt-4 border-t-2 border-blue-600 dark:border-gray-800">
+
                       <div className="text-sm text-gray-500 dark:text-gray-400">
                         Created {formatCreationDate(ticket.createdAt)}
                       </div>
                       <div className="flex gap-2">
                         <button 
                           onClick={() => window.open(`/validate/${ticket.ticketId}`, '_blank')}
-                          className="flex items-center gap-2 px-3 py-1 text-sm text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-md transition-colors"
+                          className="flex items-center gap-2 px-3 py-1 text-sm text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/20 rounded-md transition-colors"
                         >
                           <QrCode size={16} />
                           View QR
@@ -625,7 +742,7 @@ export default function Dashboard() {
                         <div className="relative dropdown-container">
                           <button 
                             onClick={() => setOpenDropdown(openDropdown === ticket.id ? null : ticket.id)}
-                            className="flex items-center gap-2 px-4 py-2 text-sm bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg transition-colors border-2 border-gray-300 dark:border-gray-600 shadow-sm"
+                            className="flex items-center gap-2 px-4 py-2 text-sm bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg transition-colors border-2 border-blue-600 dark:border-gray-600 shadow-sm"
                           >
                             <Download size={16} />
                             Options
@@ -680,7 +797,7 @@ export default function Dashboard() {
       )}
 
       {activeTab === 'profile' && (
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 transition-colors">
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 transition-colors border-2 border-blue-600 dark:border-gray-700">
           <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Profile Information</h3>
           <div className="space-y-4">
             <div>

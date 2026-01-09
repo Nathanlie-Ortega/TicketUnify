@@ -60,7 +60,7 @@ export default function QRScanner({ onScanSuccess, onScanError, isOpen, onClose 
   };
 
   // Scan QR code from video - REAL SCANNING
-  const scanFromVideo = () => {
+  const scanFromVideo = async () => {
   if (!videoRef.current || !canvasRef.current || !isScanning) return;
 
   const video = videoRef.current;
@@ -82,20 +82,71 @@ export default function QRScanner({ onScanSuccess, onScanError, isOpen, onClose 
   });
 
   if (code) {
-    console.log('✅ QR Code detected from camera:', code.data);
-    
-    // Extract ticket ID from URL
-    const ticketId = extractTicketId(code.data);
-    
-    if (ticketId) {
-      console.log('✅ Extracted ticket ID:', ticketId);
-      stopCamera();
-      onScanSuccess?.(ticketId);
-    } else {
-      console.warn('⚠️ Could not extract ticket ID from QR:', code.data);
+      console.log('✅ QR Code detected from camera:', code.data);
+      
+      // Extract ticket ID from URL
+      const ticketId = extractTicketId(code.data);
+      
+      if (ticketId) {
+        console.log('✅ Extracted ticket ID:', ticketId);
+        stopCamera();
+        
+        // Fetch ticket data and check if expired
+        const ticketData = await fetchTicketData(ticketId);
+        
+        if (ticketData && isTicketExpired(ticketData)) {
+          onScanError?.('Ticket Expired - This ticket has expired and cannot be used for entry. The event grace period has passed.');
+        } else {
+          onScanSuccess?.(ticketId);
+        }
+      } else {
+        console.warn('⚠️ Could not extract ticket ID from QR:', code.data);
+      }
     }
-  }
+
+
 };
+
+
+
+
+  // Check if ticket is expired (same logic as validation page)
+  const isTicketExpired = (ticketData) => {
+    if (!ticketData || !ticketData.eventDate || !ticketData.eventTime) return false;
+
+    try {
+      const eventDateTime = new Date(`${ticketData.eventDate}T${ticketData.eventTime}:00`);
+      const gracePeriodMinutes = 30;
+      const expirationTime = new Date(eventDateTime.getTime() + (gracePeriodMinutes * 60 * 1000));
+      const now = new Date();
+      return now > expirationTime;
+    } catch (error) {
+      console.error('Error checking ticket expiration:', error);
+      return false;
+    }
+  };
+
+  // Fetch ticket data from Firestore
+  const fetchTicketData = async (ticketId) => {
+    try {
+      const { collection, query, where, getDocs } = await import('firebase/firestore');
+      const { db } = await import('../utils/firebase');
+      
+      const ticketsRef = collection(db, 'tickets');
+      const q = query(ticketsRef, where('ticketId', '==', ticketId));
+      const querySnapshot = await getDocs(q);
+      
+      if (querySnapshot.empty) {
+        return null;
+      }
+      
+      const ticketDoc = querySnapshot.docs[0];
+      return { id: ticketDoc.id, ...ticketDoc.data() };
+    } catch (error) {
+      console.error('Error fetching ticket:', error);
+      return null;
+    }
+  };
 
 
 
@@ -137,12 +188,14 @@ export default function QRScanner({ onScanSuccess, onScanError, isOpen, onClose 
 };
 
 // ADD THIS NEW FUNCTION - Handle IMAGE upload
-const handleImageUpload = (file) => {
-  return new Promise((resolve) => {
+const handleImageUpload = async (file) => {
+  return new Promise(async (resolve) => {
     const reader = new FileReader();
     reader.onload = (e) => {
       const img = new Image();
-      img.onload = () => {
+      img.onload = async () => {
+
+
         const canvas = canvasRef.current;
         const context = canvas.getContext('2d');
         
@@ -153,17 +206,28 @@ const handleImageUpload = (file) => {
         const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
         const code = jsQR(imageData.data, imageData.width, imageData.height);
         
-        if (code) {
+if (code) {
           console.log('✅ QR Code from image:', code.data);
           const ticketId = extractTicketId(code.data);
           
           if (ticketId) {
-            onScanSuccess?.(ticketId);
-            resolve(true);
+            // Fetch ticket data and check if expired
+            const ticketData = await fetchTicketData(ticketId);
+            
+            if (ticketData && isTicketExpired(ticketData)) {
+              onScanError?.('Ticket Expired - This ticket has expired and cannot be used for entry. The event grace period has passed.');
+              resolve(false);
+            } else {
+              onScanSuccess?.(ticketId);
+              resolve(true);
+            }
           } else {
             onScanError?.('Could not read ticket ID from QR code');
             resolve(false);
           }
+
+
+          
         } else {
           onScanError?.('No QR code found in image');
           resolve(false);
@@ -215,16 +279,32 @@ const handlePDFUpload = async (file) => {
         inversionAttempts: "attemptBoth", // Try both normal and inverted
       });
 
+
+
       if (code) {
-        console.log('✅ QR Code from PDF found at scale', scale, ':', code.data);
-        const ticketId = extractTicketId(code.data);
-        
-        if (ticketId) {
-          console.log('✅ Ticket ID extracted:', ticketId);
-          onScanSuccess?.(ticketId);
-          return; // Success!
-        }
-      }
+              console.log('✅ QR Code from PDF found at scale', scale, ':', code.data);
+              const ticketId = extractTicketId(code.data);
+              
+              if (ticketId) {
+                console.log('✅ Ticket ID extracted:', ticketId);
+                
+                // Fetch ticket data and check if expired
+                const ticketData = await fetchTicketData(ticketId);
+                
+                if (ticketData && isTicketExpired(ticketData)) {
+                  onScanError?.('Ticket Expired - This ticket has expired and cannot be used for entry. The event grace period has passed.');
+                  return; // Exit early - don't call onScanSuccess
+                }
+                
+                // Only call success if NOT expired
+                onScanSuccess?.(ticketId);
+                return; // Success!
+              }
+            }
+
+
+
+
       
       console.log(`❌ No QR code found at scale ${scale}, trying next...`);
     }

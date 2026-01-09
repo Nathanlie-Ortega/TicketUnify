@@ -19,7 +19,7 @@ import ProtectedRoute from './components/ProtectedRoute';
 
 function AppContent() {
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex flex-col transition-colors">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex flex-col transition-colors" style={{ backgroundImage: 'none' }}>
       <Navbar />
       
       <main className="flex-1">

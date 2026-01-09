@@ -107,4 +107,50 @@ router.get('/', (req, res) => {
   });
 });
 
+// CREATE PAYMENT INTENT - MOVED HERE!
+router.post('/create-payment-intent', async (req, res) => {
+  try {
+    const { ticketType, ticketData } = req.body;
+    
+    const stripeService = require('../services/stripeService');
+    const priceInfo = stripeService.TICKET_PRICES[ticketType];
+    
+    if (!priceInfo) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid ticket type'
+      });
+    }
+
+    if (priceInfo.amount === 0) {
+      return res.json({
+        success: true,
+        message: 'Free ticket, no payment needed',
+        requiresPayment: false
+      });
+    }
+
+    const paymentIntent = await stripeService.createPaymentIntent({ 
+      ticketData: {
+        ...ticketData,
+        ticketType: ticketType  // ← ADD ticketType here!
+      }
+    });
+
+    res.json({
+      success: true,
+      requiresPayment: true,
+      clientSecret: paymentIntent.clientSecret,
+      amount: priceInfo.amount / 100,
+    });
+  } catch (error) {
+    console.error('Payment intent error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to create payment intent',
+      error: error.message
+    });
+  }
+});
+
 module.exports = router;

@@ -78,6 +78,21 @@ React.useEffect(() => {
     }
   };
 
+  const formatTime = (timeString) => {
+    if (!timeString) return 'Event Time';
+    try {
+      // Convert 24-hour time to 12-hour format with AM/PM
+      const [hours, minutes] = timeString.split(':');
+      const hour = parseInt(hours, 10);
+      const ampm = hour >= 12 ? 'PM' : 'AM';
+      const displayHour = hour % 12 || 12;
+      return `${displayHour}:${minutes} ${ampm}`;
+    } catch (error) {
+      console.error('Time formatting error:', error);
+      return timeString;
+    }
+  };
+
   const downloadAsPDF = async () => {
     if (!ticketRef.current) return;
     
@@ -163,17 +178,26 @@ React.useEffect(() => {
 
         {/* Main Content */}
         <div className="relative p-6 h-full flex flex-col">
+
+
+          
           {/* Header */}
           <div className="flex items-start justify-between mb-4">
             <div className="flex-1">
               <h2 className="text-white font-bold text-lg leading-tight mb-1">
                 {ticketData?.eventName || 'Event Name'}
               </h2>
-              <div className="flex items-center text-blue-100 text-sm">
+              <div className="flex items-center text-blue-100 text-sm mb-1">
                 <Calendar size={14} className="mr-1" />
                 {formatDate(ticketData?.eventDate)}
               </div>
+              <div className="flex items-center text-blue-100 text-sm">
+                <Calendar size={14} className="mr-1" />
+                {formatTime(ticketData?.eventTime)}
+              </div>
             </div>
+
+
             
             {/* Avatar */}
             <div className="ml-4">

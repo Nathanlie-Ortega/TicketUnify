@@ -1,12 +1,20 @@
-// src/pages/Home.jsx - Updated with Backend Email Integration and Fixed Post-Signup Email
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { collection, addDoc, updateDoc, doc } from 'firebase/firestore';
+// src/pages/Home.jsx - UPDATED: Require signup before ticket creation
+import React, { useState, useEffect } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { collection, addDoc } from 'firebase/firestore';
 import { db } from '../utils/firebase';
 import TicketForm from '../components/TicketForm';
 import TicketPreview from '../components/TicketPreview';
 import { useAuth } from '../contexts/AuthContext';
 import { useTickets } from '../contexts/TicketContext';
+import toast from 'react-hot-toast';
+
+import { loadStripe } from '@stripe/stripe-js';
+import { Elements } from '@stripe/react-stripe-js';
+import PaymentForm from '../components/PaymentForm';
+import Modal from '../components/ui/Modal';
+
+const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY);
 
 // Helper function to generate ticket ID
 const generateTicketId = () => {
@@ -28,347 +36,274 @@ export default function Home() {
     email: '',
     eventName: '',
     eventDate: getTodayDate(),
+    eventTime: (() => {
+      const now = new Date();
+      now.setMinutes(now.getMinutes() + 1);
+      return now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+    })(),
     location: 'Dallas, TX',
     ticketType: 'Standard'
   });
   const [avatarFile, setAvatarFile] = useState(null);
-  const [previewMode, setPreviewMode] = useState(false);
   const [createdTicket, setCreatedTicket] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState(null);
   const [emailStatus, setEmailStatus] = useState('');
+  
   const { currentUser } = useAuth();
-  const { addTicket } = useTickets(); // Use the ticket context
+  const { addTicket } = useTickets();
   const navigate = useNavigate();
+  const location = useLocation();
+  
 
-  // Helper function to convert file to base64 URL
-  const convertFileToDataURL = (file) => {
-    return new Promise((resolve, reject) => {
-      if (!file) {
-        resolve(null);
-        return;
-      }
-      
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result);
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
+  // Payment states
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [paymentIntent, setPaymentIntent] = useState(null);
+  const [pendingTicketData, setPendingTicketData] = useState(null);
+
+  // Handle real-time preview updates
+  const handlePreviewUpdate = (formData, avatar) => {
+    setTicketData(formData);
+    setAvatarFile(avatar);
   };
 
-  // Save avatar to storage for navbar use (only for the first ticket when signing up)
-  const saveAvatarToStorage = async (avatarFile, ticketData, isFirstTicket = false) => {
-    try {
-      if (avatarFile) {
-        const avatarDataURL = await convertFileToDataURL(avatarFile);
-        if (avatarDataURL) {
-          // Always save for current ticket preview
-          sessionStorage.setItem('currentTicketAvatar', avatarDataURL);
-          
-          // Save ticket data with avatar for later reference
-          const ticketDataWithAvatar = {
-            ...ticketData,
-            avatarUrl: avatarDataURL,
-            timestamp: Date.now()
-          };
-          localStorage.setItem('recentTicketData', JSON.stringify(ticketDataWithAvatar));
-          
-          // Save ticket-specific avatar using ticket ID if available
-          if (ticketData.id) {
-            localStorage.setItem(`ticket-avatar-${ticketData.id}`, avatarDataURL);
-          }
-          
-          // Only save as account profile picture if this is the first ticket and user isn't logged in
-          if (!currentUser && isFirstTicket) {
-            // This will become the account profile picture when user signs up
-            localStorage.setItem('pendingUserProfileImage', avatarDataURL);
-            console.log('💾 Saved as pending account profile picture');
-          }
-          
-          console.log('💾 Avatar saved to storage for ticket use');
+
+
+
+// Handle post-signup ticket creation
+useEffect(() => {
+  console.log('useEffect triggered!');
+  console.log('currentUser:', currentUser);
+  
+  const handlePostSignupTicket = async () => {
+    // Check sessionStorage for pending ticket
+    const pendingDataStr = sessionStorage.getItem('pendingTicketData');
+    
+    if (pendingDataStr && currentUser) {
+      console.log('Found pending ticket and user is logged in!');
+      
+      try {
+        const pendingData = JSON.parse(pendingDataStr);
+        console.log('Pending ticket data:', pendingData);
+        
+        // Clear sessionStorage FIRST to prevent re-triggering
+        sessionStorage.removeItem('pendingTicketData');
+        
+        const { ticketData } = pendingData;
+        
+        // Check if Premium or Standard
+        if (ticketData.ticketType === 'Premium') {
+          console.log('Premium ticket - showing payment modal...');
+          await handlePremiumTicket(ticketData, null);
+        } else {
+          console.log('Standard ticket - creating directly...');
+          await createTicketAfterPayment(ticketData, null);
         }
+        
+      } catch (error) {
+        console.error('Error processing pending ticket:', error);
+        toast.error('Failed to create ticket: ' + error.message);
+        sessionStorage.removeItem('pendingTicketData'); // Clean up on error
       }
-    } catch (error) {
-      console.warn('Failed to save avatar to storage:', error);
+    } else if (pendingDataStr && !currentUser) {
+      console.log('Pending ticket found but waiting for user to load...');
+    } else {
+      console.log('ℹNo pending ticket data');
     }
   };
 
-  // Function to call backend email service
-  const sendTicketEmail = async (ticketData, userEmail = null) => {
+  handlePostSignupTicket();
+}, [currentUser]);
+
+
+
+
+  // Clear error message
+  const clearError = () => setError(null);
+
+  // MAIN HANDLER: User clicks "Generate & Save Ticket"
+  const handleTicketSubmit = async (ticketData, avatarFile) => {
     try {
-      console.log('📧 Calling backend email service...');
+      console.log('Ticket submission started:', ticketData);
+      console.log('Current user:', currentUser ? currentUser.uid : 'NOT LOGGED IN');
       
-      // Prepare recipients (both account email and ticket email if different)
-      const recipients = [];
-      if (userEmail) recipients.push(userEmail);
-      if (ticketData.email && ticketData.email !== userEmail) {
-        recipients.push(ticketData.email);
+
+      if (!currentUser) {
+        
+        // Store ticket data in sessionStorage so we can retrieve it after signup
+        sessionStorage.setItem('pendingTicketData', JSON.stringify({
+          ticketData,
+          avatarFile: avatarFile ? 'HAS_AVATAR' : null // Can't store File object
+        }));
+                
+        // Redirect to register page
+        navigate('/register');
+        return;
+      }
+
+      
+      // Check ticket type
+      if (ticketData.ticketType === 'Premium') {
+        console.log('Premium ticket detected, initiating payment...');
+        await handlePremiumTicket(ticketData, avatarFile);
+      } else {
+        console.log('Standard (free) ticket, creating directly...');
+        await createTicketAfterPayment(ticketData, avatarFile);
       }
       
-      const response = await fetch('http://localhost:5000/api/email/send-ticket', {
+    } catch (error) {
+      console.error('Error handling ticket submission:', error);
+      setError('Failed to process ticket: ' + error.message);
+      toast.error('Failed to process ticket: ' + error.message);
+    }
+  };
+
+  // Handle Premium tickets - Show payment modal
+  const handlePremiumTicket = async (ticketData, avatarFile) => {
+    try {
+      console.log('Creating payment intent for Premium ticket...');
+      
+      // Store ticket data for after payment
+      setPendingTicketData({ ticketData, avatarFile });
+      
+      // Create payment intent via backend
+      const response = await fetch('http://localhost:5000/api/tickets/create-payment-intent', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          ticketType: ticketData.ticketType,
           ticketData: {
-            ticketId: ticketData.ticketId,
-            fullName: ticketData.fullName,
-            email: ticketData.email,
             eventName: ticketData.eventName,
-            eventDate: ticketData.eventDate,
-            location: ticketData.location,
-            ticketType: ticketData.ticketType,
-            avatarUrl: ticketData.avatarUrl
-          },
-          recipients: recipients.length > 0 ? recipients : [ticketData.email]
+            userName: ticketData.fullName,
+            userEmail: ticketData.email,
+            ticketId: 'PENDING'
+          }
         })
       });
-
-      const result = await response.json();
       
-      if (result.success) {
-        console.log('✅ Email sent successfully:', result);
-        return result;
+      const paymentData = await response.json();
+      console.log('Payment data received:', paymentData);
+      
+      if (paymentData.requiresPayment) {
+        console.log('Payment required, showing modal...');
+        setPaymentIntent(paymentData.clientSecret);
+        setShowPaymentModal(true);
+        toast.success('Please complete payment to generate your ticket');
       } else {
-        console.error('❌ Email sending failed:', result);
-        throw new Error(result.message || 'Failed to send email');
+        // Should not happen for Premium, but handle gracefully
+        console.log('Premium ticket but no payment required?');
+        await createTicketAfterPayment(ticketData, avatarFile);
       }
+      
     } catch (error) {
-      console.error('❌ Error calling email service:', error);
+      console.error('Error handling premium ticket:', error);
+      toast.error('Failed to initiate payment: ' + error.message);
       throw error;
     }
   };
 
-  // Handle real-time preview updates (no backend call)
-  const handlePreviewUpdate = async (data, file) => {
-    console.log('Preview update:', data);
-    setTicketData(data);
-    setAvatarFile(file);
-    
-    // Check if this is the user's first ticket (when not logged in)
-    const isFirstTicket = !currentUser;
-    
-    // Save avatar to storage for ticket and potentially account use
-    await saveAvatarToStorage(file, data, isFirstTicket);
-    
-    // Clear any previous errors when user makes changes
-    setError(null);
-    setEmailStatus('');
-  };
-
-  // Handle actual form submission - UPDATED WITH EMAIL INTEGRATION
-  const handleFormSubmit = async (formData) => {
-    setIsSubmitting(true);
-    setError(null);
-    setEmailStatus('');
-    
+  // Create ticket in Firestore (called after payment or directly for Standard)
+  const createTicketAfterPayment = async (ticketData, avatarFile) => {
     try {
-      console.log('Creating ticket with data:', formData);
+      console.log('Creating ticket in Firestore...');
+      setIsSubmitting(true);
+      setError(null);
+      setEmailStatus('');
       
-      // Validate Firebase connection first
-      if (!db) {
-        throw new Error('Firebase database not initialized. Check your Firebase configuration.');
-      }
-      
-      // Generate ticket ID
       const ticketId = generateTicketId();
       
-      // Prepare ticket data for Firestore - ENSURE USER LINKING
-      const ticketDataForFirestore = {
+      const finalTicketData = {
         ticketId: ticketId,
-        fullName: formData.fullName || '',
-        email: formData.email || '',
-        eventName: formData.eventName || '',
-        eventDate: formData.eventDate || getTodayDate(),
-        location: formData.location || 'Dallas, TX',
-        ticketType: formData.ticketType || 'Standard',
-        // CRITICAL: Proper user linking
-        userId: currentUser?.uid || null,
-        userEmail: currentUser?.email || formData.email || '',
-        // For anonymous users, still store the email for future linking
+        fullName: ticketData.fullName,
+        email: ticketData.email,
+        eventName: ticketData.eventName,
+        eventDate: ticketData.eventDate,
+        eventTime: ticketData.eventTime,  // ← ADD THIS LINE
+        location: ticketData.location,
+        ticketType: ticketData.ticketType,
         status: 'active',
         checkedIn: false,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
-        // Email status tracking
-        emailSent: false,
-        emailError: null
+        userId: currentUser.uid,
+        userEmail: currentUser.email,
+        userName: ticketData.fullName,
       };
-      
-      // Add avatar URL to ticket data if available
-      if (avatarFile) {
-        const avatarDataURL = await convertFileToDataURL(avatarFile);
-        if (avatarDataURL) {
-          ticketDataForFirestore.avatarUrl = avatarDataURL;
-        }
-      }
-      
-      console.log('Attempting to save ticket to Firestore:', ticketDataForFirestore);
-      
-      // Test Firestore connection with a timeout
-      const savePromise = addDoc(collection(db, 'tickets'), ticketDataForFirestore);
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Request timed out after 15 seconds')), 15000)
-      );
-      
-      const docRef = await Promise.race([savePromise, timeoutPromise]);
-            
-      // Create final ticket data with Firestore document ID
-      const finalTicketData = {
-        id: docRef.id,
-        ...ticketDataForFirestore
-      };
-      
-      // Save ticket-specific avatar to storage
-      if (avatarFile) {
-        const avatarDataURL = await convertFileToDataURL(avatarFile);
-        if (avatarDataURL) {
-          // Save ticket-specific avatar
-          localStorage.setItem(`ticket-avatar-${docRef.id}`, avatarDataURL);
-          console.log('Saved ticket-specific avatar for:', docRef.id);
-        }
-      }
-      
-      // Update local state
-      setTicketData(finalTicketData);
+
+      // Save to Firestore
+      const docRef = await addDoc(collection(db, 'tickets'), finalTicketData);
+      finalTicketData.id = docRef.id;
+
+      console.log('Ticket created with ID:', docRef.id);
+
+      // Update state
       setCreatedTicket(finalTicketData);
-      setPreviewMode(true);
+      setAvatarFile(avatarFile);
       
-      // CRITICAL: Add to ticket context for immediate dashboard update
-      if (addTicket) {
-        addTicket(finalTicketData);
-      }
+      // Add to context
+      addTicket(finalTicketData);
 
-      // Save ticket data for post-signup email delivery
-      const ticketDataForEmail = {
-        ticketId: finalTicketData.ticketId,
-        fullName: finalTicketData.fullName,
-        email: finalTicketData.email,
-        eventName: finalTicketData.eventName,
-        eventDate: finalTicketData.eventDate,
-        location: finalTicketData.location,
-        ticketType: finalTicketData.ticketType,
-        avatarUrl: finalTicketData.avatarUrl,
-        firestoreId: docRef.id, // Add Firestore document ID for later updates
-        timestamp: Date.now(),
-        needsEmail: true // ✅ CRITICAL: This flag tells Register.jsx to send email
-      };
-      localStorage.setItem('recentTicketData', JSON.stringify(ticketDataForEmail));
-      console.log('💾 Saved ticket data for potential post-signup email with needsEmail=true');
-
-      // 🆕 NEW: Send email if user is signed up
-      if (currentUser) {
-        try {
-
-          
-          await sendTicketEmail(finalTicketData, currentUser.email);
-          
-          // Update ticket with email sent status
-          const emailRecipients = [currentUser.email];
-          if (finalTicketData.email && finalTicketData.email !== currentUser.email) {
-            emailRecipients.push(finalTicketData.email);
-          }
-          
-          await updateDoc(doc(db, 'tickets', docRef.id), {
-            emailSent: true,
-            emailSentAt: new Date().toISOString(),
-            emailRecipients: emailRecipients
-          });
-          
-          // Update local ticket data
-          finalTicketData.emailSent = true;
-          finalTicketData.emailSentAt = new Date().toISOString();
-          finalTicketData.emailRecipients = emailRecipients;
-          
-
-        } catch (emailError) {
-
-          
-          // Update ticket with email error
-          await updateDoc(doc(db, 'tickets', docRef.id), {
-            emailError: emailError.message,
-            emailErrorAt: new Date().toISOString()
-          });
-          
-          // Update local ticket data
-          finalTicketData.emailError = emailError.message;
-          finalTicketData.emailErrorAt = new Date().toISOString();
-          
-          setEmailStatus('⚠️ Ticket created but email failed to send. You can resend from dashboard.');
+      // Try to send email (optional - backend might be disabled)
+      try {
+        const emailResponse = await fetch('http://localhost:5000/api/email/send-ticket', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: finalTicketData.email,
+            ticketData: finalTicketData
+          })
+        });
+        
+        const emailResult = await emailResponse.json();
+        if (emailResult.success) {
+          setEmailStatus('Ticket email sent successfully!');
+        } else {
+          setEmailStatus('Email service unavailable. Download your ticket below.');
         }
-      } else {
-        console.log('👤 User not signed up, saving ticket for post-signup email...');
-        setEmailStatus('Sign up to receive your ticket via email!');
+      } catch (emailError) {
+        console.log('Email service not available:', emailError);
+        setEmailStatus('Email service unavailable. Download your ticket below.');
       }
 
+      toast.success('Ticket created successfully!');
+      
     } catch (error) {
-      // Error handling remains the same...
-      let errorMessage = 'Failed to create ticket. ';
-      
-      if (error.code === 'permission-denied') {
-        errorMessage += 'Permission denied. Please check your Firebase security rules.';
-      } else if (error.code === 'unavailable') {
-        errorMessage += 'Service temporarily unavailable. Please try again.';
-      } else if (error.message.includes('timeout')) {
-        errorMessage += 'Request timed out. Please check your internet connection.';
-      } else if (error.message.includes('Firebase')) {
-        errorMessage += 'Database connection issue. Please refresh the page and try again.';
-      } else {
-        errorMessage += error.message || 'Unknown error occurred.';
-      }
-      
-      setError(errorMessage);
-      
-      // For development, show detailed error in console
-      console.error('Full error details:', {
-        code: error.code,
-        message: error.message,
-        stack: error.stack
-      });
-      
+      console.error('Error creating ticket:', error);
+      setError(error.message);
+      toast.error('Failed to create ticket.');
+      throw error;
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const handleEdit = () => {
-    setPreviewMode(false);
-    setCreatedTicket(null);
-    setError(null);
-    setEmailStatus('');
-  };
-
-  // Navigate to register page and handle profile picture for account creation only
-  const handleSignUp = async () => {
-    try {
-      // Only save account profile data if this is the first ticket creation
-      if (avatarFile && ticketData.fullName) {
-        const avatarDataURL = await convertFileToDataURL(avatarFile);
-        if (avatarDataURL) {
-          // Save for account creation (not for individual tickets)
-          localStorage.setItem('pendingUserProfileImage', avatarDataURL);
-          localStorage.setItem('pendingUserName', ticketData.fullName);
-          
-          // Dispatch custom event to notify navbar about ACCOUNT profile update
-          window.dispatchEvent(new CustomEvent('userProfileUpdated', {
-            detail: {
-              name: ticketData.fullName,
-              email: ticketData.email,
-              avatar: avatarDataURL
-            }
-          }));
-        }
-      }
-    } catch (error) {
-      console.warn('Failed to save profile data for signup:', error);
+  // Handle successful payment
+  const handlePaymentSuccess = async (paymentIntentResult) => {
+    console.log('Payment successful!', paymentIntentResult);
+    
+    setShowPaymentModal(false);
+    toast.success('Payment successful!');
+    
+    // Create the ticket now that payment is complete
+    if (pendingTicketData) {
+      await createTicketAfterPayment(
+        pendingTicketData.ticketData,
+        pendingTicketData.avatarFile
+      );
     }
     
-    navigate('/register');
+    // Clear pending data
+    setPendingTicketData(null);
+    setPaymentIntent(null);
   };
 
-  const clearError = () => {
-    setError(null);
+  // Handle payment cancellation
+  const handlePaymentCancel = () => {
+    console.log('Payment cancelled');
+    setShowPaymentModal(false);
+    setPendingTicketData(null);
+    setPaymentIntent(null);
+    toast.error('Payment cancelled. The ticket was not created.');
   };
 
   return (
@@ -409,11 +344,11 @@ export default function Home() {
           <div className="order-2 lg:order-1">
             <div className="bg-white dark:bg-gray-800 rounded-xl shadow-lg border-2 border-blue-600 dark:border-gray-700 p-6 transition-colors">
               <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-1">
-                {previewMode ? 'Ticket Generated!' : 'Create Your Ticket'}
+                {createdTicket ? 'Ticket Generated!' : 'Create Your Ticket'}
               </h2>
               <p className="text-gray-600 dark:text-gray-300 mb-6">
-                {previewMode 
-                  ? 'Your ticket has been generated and saved. You can download it or make changes.' 
+                {createdTicket 
+                  ? 'Your ticket has been generated and saved. You can download it or view it in your dashboard.' 
                   : 'Fill in your details to generate a professional conference ticket.'
                 }
               </p>
@@ -443,10 +378,10 @@ export default function Home() {
                 </div>
               )}
               
-              {!previewMode ? (
+              {!createdTicket ? (
                 <TicketForm 
                   onPreviewUpdate={handlePreviewUpdate}
-                  onSubmitSuccess={handleFormSubmit}
+                  onSubmitSuccess={handleTicketSubmit}
                   initialData={ticketData}
                   isSubmitting={isSubmitting}
                 />
@@ -454,39 +389,27 @@ export default function Home() {
                 <div className="space-y-4">
                   <div className="p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
                     <p className="text-green-800 dark:text-green-400 font-medium">
-                      {currentUser 
-                        ? "✅ Ticket created and saved successfully!"
-                        : "✅ Temporary ticket created and saved successfully!"
-                      }
+                      Ticket created and saved successfully!
                     </p>
                     <p className="text-green-700 dark:text-green-300 text-sm mt-1">
-                      {createdTicket && (
-                        <>
-                          <strong>Ticket ID:</strong> {createdTicket.ticketId}
-                          <br />
-                          <strong>Status:</strong> {createdTicket.status}
-                          <br />
-                          {currentUser 
-                            ? 'Your ticket has been saved to your account and will appear in your dashboard!' 
-                            : 'Sign up to save tickets permanently, secure validation, and enable email delivery.'
-                          }
-                        </>
-                      )}
+                      <strong>Ticket ID:</strong> {createdTicket.ticketId}
+                      <br />
+                      <strong>Status:</strong> {createdTicket.status}
+                      <br />
+                      Your ticket has been saved to your account and will appear in your dashboard!
                     </p>
                   </div>
 
                   {/* Email Status Display */}
                   {emailStatus && (
                     <div className={`p-4 rounded-lg border ${
-                      emailStatus.includes('✅') 
+                      emailStatus.includes('') 
                         ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800' 
-                        : emailStatus.includes('⚠️')
-                        ? 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800'
-                        : 'bg-gray-50 dark:bg-gray-900/20 border-gray-200 dark:border-gray-800'
+                        : 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800'
                     }`}>
                       <div className="flex items-start gap-3">
                         <svg className="w-5 h-5 mt-0.5 flex-shrink-0 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 4.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 002 2z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 4.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
                         </svg>
                         <div>
                           <p className="font-medium text-gray-900 dark:text-white">Email Status</p>
@@ -497,22 +420,12 @@ export default function Home() {
                   )}
                   
                   <div className="flex gap-3">
-                    {!currentUser ? (
-                      <button
-                        onClick={handleSignUp}
-                        className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                      >
-                        Sign Up to Save & Get Email
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() => navigate('/dashboard')}
-                        className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                      >
-                        View Dashboard
-                      </button>
-                    )}
-                    
+                    <button
+                      onClick={() => navigate('/dashboard')}
+                      className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                    >
+                      View Dashboard
+                    </button>
                   </div>
                 </div>
               )}
@@ -521,7 +434,7 @@ export default function Home() {
             {/* Features */}
             <div className="mt-8 grid sm:grid-cols-2 gap-4">
               <div className="flex items-center gap-3 p-4 bg-white dark:bg-gray-800 rounded-lg shadow-sm border-2 border-blue-600 dark:border-gray-700 transition-colors">
-                <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900 rounded-lg flex items-center justify-center">
+                <div className="w-10 h-10 bg-blue-300 dark:bg-blue-900 rounded-lg flex items-center justify-center">
                   <svg className="w-5 h-5 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                   </svg>
@@ -533,9 +446,8 @@ export default function Home() {
               </div>
               
               <div className="flex items-center gap-3 p-4 bg-white dark:bg-gray-800 rounded-lg shadow-sm border-2 border-blue-600 dark:border-gray-700 transition-colors">
-                <div className="w-10 h-10 bg-green-100 dark:bg-green-900 rounded-lg flex items-center justify-center">
-                  <svg className="w-5 h-5 text-green-600 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 4.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 002 2z" />
+                <div className="w-10 h-10 bg-green-300 dark:bg-green-900 rounded-lg flex items-center justify-center">                  <svg className="w-5 h-5 text-green-600 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 4.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
                   </svg>
                 </div>
                 <div>
@@ -546,21 +458,49 @@ export default function Home() {
                 </div>
               </div>
             </div>
+
+
           </div>
 
           {/* Preview Section */}
           <div className="order-1 lg:order-2">
             <div className="sticky top-8">
               <TicketPreview 
-                ticketData={ticketData}
+                ticketData={createdTicket || ticketData}
                 avatarFile={avatarFile}
-                showDownload={previewMode}
-                isGenerated={previewMode && createdTicket !== null}
+                showDownload={!!createdTicket}
+                isGenerated={!!createdTicket}
               />
             </div>
           </div>
         </div>
       </div>
+
+      {/* Payment Modal */}
+      {showPaymentModal && paymentIntent && (
+        <Modal
+          isOpen={showPaymentModal}
+          onClose={handlePaymentCancel}
+          title="Complete Payment"
+          size="md"
+        >
+          <Elements
+            stripe={stripePromise}
+            options={{
+              clientSecret: paymentIntent,
+              appearance: {
+                theme: 'stripe',
+              },
+            }}
+          >
+            <PaymentForm
+              amount={4.99}
+              onSuccess={handlePaymentSuccess}
+              onCancel={handlePaymentCancel}
+            />
+          </Elements>
+        </Modal>
+      )}
     </div>
   );
 }

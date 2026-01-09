@@ -233,3 +233,4 @@ div[style*="position: fixed"][style*="bottom: 0"] {
 *:contains("Running in emulator mode") {
   display: none !important;
 }
+
