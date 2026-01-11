@@ -8,6 +8,9 @@ import TicketPreview from '../components/TicketPreview';
 import { useAuth } from '../contexts/AuthContext';
 import { useTickets } from '../contexts/TicketContext';
 import toast from 'react-hot-toast';
+import { api } from '../utils/api';
+import { generateTicketPDFBuffer } from '../utils/pdfHelper';
+import html2canvas from 'html2canvas';
 
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements } from '@stripe/react-stripe-js';
@@ -204,78 +207,217 @@ useEffect(() => {
 
   // Create ticket in Firestore (called after payment or directly for Standard)
   const createTicketAfterPayment = async (ticketData, avatarFile) => {
+  try {
+    console.log(' Creating ticket in Firestore...');
+    setIsSubmitting(true);
+    setError(null);
+    setEmailStatus('');
+    
+    const ticketId = generateTicketId();
+    
+    const finalTicketData = {
+      ticketId: ticketId,
+      fullName: ticketData.fullName,
+      email: ticketData.email,
+      eventName: ticketData.eventName,
+      eventDate: ticketData.eventDate,
+      eventTime: ticketData.eventTime,
+      location: ticketData.location,
+      ticketType: ticketData.ticketType,
+      status: 'active',
+      checkedIn: false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      userId: currentUser.uid,
+      userEmail: currentUser.email,
+      userName: ticketData.fullName,
+    };
+
+    // Save to Firestore
+    const docRef = await addDoc(collection(db, 'tickets'), finalTicketData);
+    finalTicketData.id = docRef.id;
+
+    console.log(' Ticket created in Firestore with ID:', docRef.id);
+    console.log(' Ticket ID:', finalTicketData.ticketId);
+    console.log(' Full ticket data:', finalTicketData);
+
+    // Update state
+    setCreatedTicket(finalTicketData);
+    setAvatarFile(avatarFile);
+    
+    // Add to context
+    addTicket(finalTicketData);
+
+    toast.success('Ticket created successfully!');
+
+
+    // EMAIL DELIVERY LOGIC - UPDATED WITH FULL ALGORITHM
     try {
-      console.log('Creating ticket in Firestore...');
-      setIsSubmitting(true);
-      setError(null);
-      setEmailStatus('');
+      console.log(' Starting email delivery process...');
       
-      const ticketId = generateTicketId();
+      const formEmail = ticketData.email; // Email from the ticket form
+      const accountEmail = currentUser.email; // User's account email
+      const isNewUser = sessionStorage.getItem('isNewUser') === 'true';
       
-      const finalTicketData = {
-        ticketId: ticketId,
-        fullName: ticketData.fullName,
-        email: ticketData.email,
-        eventName: ticketData.eventName,
-        eventDate: ticketData.eventDate,
-        eventTime: ticketData.eventTime,  // ← ADD THIS LINE
-        location: ticketData.location,
-        ticketType: ticketData.ticketType,
-        status: 'active',
-        checkedIn: false,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        userId: currentUser.uid,
-        userEmail: currentUser.email,
-        userName: ticketData.fullName,
-      };
-
-      // Save to Firestore
-      const docRef = await addDoc(collection(db, 'tickets'), finalTicketData);
-      finalTicketData.id = docRef.id;
-
-      console.log('Ticket created with ID:', docRef.id);
-
-      // Update state
-      setCreatedTicket(finalTicketData);
-      setAvatarFile(avatarFile);
+      console.log(' Email Logic Check:', {
+        formEmail,
+        accountEmail,
+        isNewUser,
+        sameEmail: formEmail === accountEmail
+      });
       
-      // Add to context
-      addTicket(finalTicketData);
+      // STEP 1: Send Welcome Email (only for new users)
+      if (isNewUser) {
+        console.log(' Sending welcome email to new user:', accountEmail);
+        setEmailStatus(' Sending welcome email...');
+        
+        try {
+          const welcomeResponse = await fetch('http://localhost:5000/api/email/send-welcome', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              email: accountEmail,
+              name: currentUser.displayName || ticketData.fullName
+            })
+          });
+          
+          const welcomeResult = await welcomeResponse.json();
+          if (welcomeResult.success) {
+            console.log(' Welcome email sent successfully');
+          }
+        } catch (welcomeError) {
+          console.error(' Welcome email failed:', welcomeError);
+        }
+        
+        // Clear the new user flag
+        sessionStorage.removeItem('isNewUser');
+      }
+      
+      // STEP 2: Send Ticket Email(s)
+      if (formEmail === accountEmail) {
+        // CASE A: SAME EMAIL - Send to one email only
+        console.log(' Form email = Account email. Sending ticket to:', accountEmail);
+        setEmailStatus(' Sending your ticket via email...');
 
-      // Try to send email (optional - backend might be disabled)
-      try {
-        const emailResponse = await fetch('http://localhost:5000/api/email/send-ticket', {
+        // Generate PDF from ticket preview
+        console.log(' Generating PDF for email...');
+        let pdfBase64 = null;
+        try {
+          // Wait for React to update the ticket preview with real ticket ID
+          console.log(' Waiting for ticket preview to update...');
+          await new Promise(resolve => setTimeout(resolve, 1500));
+          
+          const ticketElement = document.querySelector('[data-ticket-preview]');
+          if (ticketElement) {
+            console.log(' Ticket element found, generating PDF...');
+            pdfBase64 = await generateTicketPDFBuffer(ticketElement);
+            console.log(' PDF generated for email');
+          } else {
+            console.warn(' Ticket element not found, using fallback PDF');
+          }
+        } catch (pdfError) {
+          console.error(' PDF generation failed:', pdfError);
+        }
+
+        const ticketResponse = await fetch('http://localhost:5000/api/email/send-ticket', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            email: finalTicketData.email,
-            ticketData: finalTicketData
+            ticketData: finalTicketData,
+            pdfBase64: pdfBase64
           })
         });
         
-        const emailResult = await emailResponse.json();
-        if (emailResult.success) {
-          setEmailStatus('Ticket email sent successfully!');
+        const ticketResult = await ticketResponse.json();
+        if (ticketResult.success) {
+          console.log(' Ticket email sent to:', accountEmail);
+          setEmailStatus(` Ticket sent to ${accountEmail}!`);
+          toast.success('Ticket sent to your email!');
         } else {
-          setEmailStatus('Email service unavailable. Download your ticket below.');
+          throw new Error('Ticket email failed');
         }
-      } catch (emailError) {
-        console.log('Email service not available:', emailError);
-        setEmailStatus('Email service unavailable. Download your ticket below.');
-      }
-
-      toast.success('Ticket created successfully!');
+        
+        } else {
+          // CASE B: DIFFERENT EMAILS - Send to both
+          console.log(' Form email ≠ Account email. Sending to BOTH emails');
+          console.log(' Account email:', accountEmail);
+          console.log(' Form email:', formEmail);
+          setEmailStatus(' Sending ticket to multiple emails...');
+          
+          // Wait for React to update the ticket preview with real ticket ID
+          console.log(' Waiting for ticket preview to update...');
+          await new Promise(resolve => setTimeout(resolve, 1500));
+          
+          // Generate PDF from ticket preview
+          console.log(' Generating PDF for email...');
+          let pdfBase64 = null;
+          try {
+            const ticketElement = document.querySelector('[data-ticket-preview]');
+            if (ticketElement) {
+              console.log(' Ticket element found, generating PDF...');
+              pdfBase64 = await generateTicketPDFBuffer(ticketElement);
+              console.log(' PDF generated for email');
+            } else {
+              console.warn(' Ticket element not found, using fallback PDF');
+            }
+          } catch (pdfError) {
+            console.error(' PDF generation failed:', pdfError);
+            console.error(' Error details:', pdfError.message, pdfError.stack);
+          }
+          
+          // Send to account email
+          const accountEmailResponse = await fetch('http://localhost:5000/api/email/send-ticket', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              ticketData: { ...finalTicketData, email: accountEmail },
+              pdfBase64: pdfBase64
+            })
+          });
+          
+          // Send to form email
+          const formEmailResponse = await fetch('http://localhost:5000/api/email/send-ticket', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              ticketData: finalTicketData,
+              pdfBase64: pdfBase64
+            })
+          });
+          
+          const accountResult = await accountEmailResponse.json();
+          const formResult = await formEmailResponse.json();
+          
+          if (accountResult.success && formResult.success) {
+            console.log(' Ticket emails sent to both addresses');
+            setEmailStatus(` Ticket sent to ${accountEmail} and ${formEmail}!`);
+            toast.success('Ticket sent to both email addresses!');
+          } else if (accountResult.success || formResult.success) {
+            console.log(' Ticket sent to one email only');
+            setEmailStatus(' Ticket sent to one email (check spam folder for the other)');
+            toast.warning('Ticket partially sent. Check your spam folder.');
+          } else {
+            throw new Error('Both ticket emails failed');
+          }
+        }
       
+    } catch (emailError) {
+      console.error(' Email delivery failed:', emailError);
+      setEmailStatus(' Email delivery failed. Your ticket is saved in your dashboard.');
+      toast.error('Ticket saved but email failed. Check your dashboard.');
+      // Don't throw - ticket is already created and saved
+    }
+
+    
     } catch (error) {
-      console.error('Error creating ticket:', error);
+      console.error(' Error creating ticket:', error);
       setError(error.message);
       toast.error('Failed to create ticket.');
       throw error;
     } finally {
       setIsSubmitting(false);
     }
-  };
+};
 
   // Handle successful payment
   const handlePaymentSuccess = async (paymentIntentResult) => {
@@ -400,24 +542,7 @@ useEffect(() => {
                     </p>
                   </div>
 
-                  {/* Email Status Display */}
-                  {emailStatus && (
-                    <div className={`p-4 rounded-lg border ${
-                      emailStatus.includes('') 
-                        ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800' 
-                        : 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800'
-                    }`}>
-                      <div className="flex items-start gap-3">
-                        <svg className="w-5 h-5 mt-0.5 flex-shrink-0 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 4.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                        </svg>
-                        <div>
-                          <p className="font-medium text-gray-900 dark:text-white">Email Status</p>
-                          <p className="text-sm text-gray-700 dark:text-gray-300 mt-1">{emailStatus}</p>
-                        </div>
-                      </div>
-                    </div>
-                  )}
+
                   
                   <div className="flex gap-3">
                     <button

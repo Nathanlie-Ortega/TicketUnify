@@ -159,6 +159,7 @@ React.useEffect(() => {
       {/* Ticket Design */}
       <div
         ref={ticketRef}
+        data-ticket-preview
         className="relative bg-white rounded-2xl shadow-2xl overflow-hidden max-w-lg mx-auto"
         style={{ aspectRatio: '1.4/1', minHeight: '320px' }}
       >

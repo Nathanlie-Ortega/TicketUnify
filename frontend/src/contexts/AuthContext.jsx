@@ -28,7 +28,7 @@ export function AuthProvider({ children }) {
   // Link anonymous tickets to user account
   async function linkAnonymousTickets(userEmail, userId) {
     try {
-      console.log('🔗 Linking anonymous tickets for:', userEmail);
+      console.log(' Linking anonymous tickets for:', userEmail);
       
       // Find tickets with matching email that are anonymous
       const ticketsRef = collection(db, 'tickets');
@@ -40,12 +40,12 @@ export function AuthProvider({ children }) {
       
       const querySnapshot = await getDocs(q);
       
-      console.log('🔗 Found', querySnapshot.size, 'anonymous tickets to link');
+      console.log(' Found', querySnapshot.size, 'anonymous tickets to link');
       
       // Update each anonymous ticket to link to user
       const updatePromises = querySnapshot.docs.map(async (docSnapshot) => {
         const ticketId = docSnapshot.id;
-        console.log('🔗 Linking ticket:', ticketId);
+        console.log(' Linking ticket:', ticketId);
         
         return updateDoc(doc(db, 'tickets', ticketId), {
           userId: userId,
@@ -55,11 +55,11 @@ export function AuthProvider({ children }) {
       });
       
       await Promise.all(updatePromises);
-      console.log('✅ Successfully linked', querySnapshot.size, 'tickets to user account');
+      console.log(' Successfully linked', querySnapshot.size, 'tickets to user account');
       
       return querySnapshot.size;
     } catch (error) {
-      console.error('❌ Error linking anonymous tickets:', error);
+      console.error(' Error linking anonymous tickets:', error);
       return 0;
     }
   }
@@ -67,27 +67,27 @@ export function AuthProvider({ children }) {
   // Sign up function - FIXED VERSION
   async function signup(email, password, fullName) {
     try {
-      console.log('🔄 AuthContext: Starting signup...');
+      console.log(' AuthContext: Starting signup...');
       
       // Step 1: Create Firebase Auth user
-      console.log('📧 Creating Firebase Auth user...');
+      console.log(' Creating Firebase Auth user...');
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
       
-      console.log('✅ Firebase Auth user created:', user.uid);
+      console.log(' Firebase Auth user created:', user.uid);
       
       // Step 2: Update profile with display name
-      console.log('👤 Updating display name...');
+      console.log(' Updating display name...');
       await updateProfile(user, { displayName: fullName });
       
-      console.log('✅ Display name updated');
+      console.log(' Display name updated');
       
       // Step 3: Link any anonymous tickets with this email
       const linkedTicketsCount = await linkAnonymousTickets(email, user.uid);
       
       // Step 4: Create user profile in Firestore (with better error handling)
       try {
-        console.log('💾 Creating user document in Firestore...');
+        console.log(' Creating user document in Firestore...');
         
         const userProfile = {
           uid: user.uid,
@@ -101,18 +101,20 @@ export function AuthProvider({ children }) {
         };
         
         await setDoc(doc(db, 'users', user.uid), userProfile);
-        console.log('✅ User document created in Firestore');
+        console.log(' User document created in Firestore');
         
       } catch (firestoreError) {
-        console.warn('⚠️ Firestore user creation failed (but auth user was created):', firestoreError);
+        console.warn(' Firestore user creation failed (but auth user was created):', firestoreError);
         console.warn('This might be due to Firestore security rules');
       }
       
-      console.log(`🎉 Signup completed successfully! Linked ${linkedTicketsCount} existing tickets.`);
-      return userCredential;
+        sessionStorage.setItem('isNewUser', 'true');
+
+        console.log(` Signup completed successfully! Linked ${linkedTicketsCount} existing tickets.`);
+        return userCredential;
       
     } catch (error) {
-      console.error('❌ Signup failed:', error);
+      console.error(' Signup failed:', error);
       
       // Only throw if it's an actual auth error
       if (error.code && error.code.startsWith('auth/')) {
@@ -128,19 +130,19 @@ export function AuthProvider({ children }) {
   // Sign in function
   async function signin(email, password) {
     try {
-      console.log('🔄 AuthContext: Starting signin...');
+      console.log(' AuthContext: Starting signin...');
       const result = await signInWithEmailAndPassword(auth, email, password);
-      console.log('✅ Signin successful');
+      console.log(' Signin successful');
       return result;
     } catch (error) {
-      console.error('❌ Signin failed:', error);
+      console.error(' Signin failed:', error);
       throw error;
     }
   }
 
   // Sign out function
   function logout() {
-    console.log('🔄 AuthContext: Signing out...');
+    console.log(' AuthContext: Signing out...');
     setUserProfile(null);
     return signOut(auth);
   }
@@ -148,30 +150,30 @@ export function AuthProvider({ children }) {
   // Get user profile from Firestore
   async function fetchUserProfile(uid) {
     try {
-      console.log('🔄 Fetching user profile for:', uid);
+      console.log(' Fetching user profile for:', uid);
       const userDoc = await getDoc(doc(db, 'users', uid));
       if (userDoc.exists()) {
         const profile = userDoc.data();
-        console.log('✅ User profile loaded:', profile);
+        console.log(' User profile loaded:', profile);
         setUserProfile(profile);
         return profile;
       } else {
-        console.warn('⚠️ User profile not found in Firestore');
+        console.warn(' User profile not found in Firestore');
         setUserProfile(null);
         return null;
       }
     } catch (error) {
-      console.error('❌ Error fetching user profile:', error);
+      console.error(' Error fetching user profile:', error);
       setUserProfile(null);
       return null;
     }
   }
 
   useEffect(() => {
-    console.log('🔄 Setting up auth state listener...');
+    console.log(' Setting up auth state listener...');
     
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      console.log('🔄 Auth state changed:', user ? `User: ${user.uid}` : 'No user');
+      console.log(' Auth state changed:', user ? `User: ${user.uid}` : 'No user');
       
       setCurrentUser(user);
       

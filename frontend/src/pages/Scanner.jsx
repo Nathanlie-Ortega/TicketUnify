@@ -32,21 +32,39 @@ const { updateTicketCheckin, findTicket, getTicketFromFirestore } = useTickets()
 
 
 
-const handleScanSuccess = async (ticketId) => {
+const handleScanSuccess = async (scannedData) => {
   setLoading(true);
   try {
-    console.log('🎫 Scanned ticket ID:', ticketId);
+    console.log(' Scanned raw data:', scannedData);
+    
+    // Extract ticket ID from URL or use as-is
+    let ticketId = scannedData;
+    
+    // If scanned data is a URL (e.g., http://localhost:3000/validate/TICKET-XXX)
+    if (scannedData.includes('/validate/')) {
+      ticketId = scannedData.split('/validate/')[1];
+      console.log(' Extracted ticket ID from URL:', ticketId);
+    }
+    
+    console.log(' Final ticket ID to validate:', ticketId);
     
     // First try local tickets (fast)
     let ticket = findTicket(ticketId);
     
     // If not found locally, query Firestore (for other users' tickets)
     if (!ticket) {
-      console.log('🔍 Ticket not in local cache, querying Firestore...');
+      console.log(' Ticket not in local cache, querying Firestore...');
       ticket = await getTicketFromFirestore(ticketId);
+      
+      if (ticket) {
+        console.log(' Found ticket in Firestore:', ticket);
+      } else {
+        console.log('Ticket not found in Firestore either');
+      }
     }
-    
+
     if (!ticket) {
+      console.log(' Final result: Ticket not found anywhere. Ticket ID:', ticketId);
       setScanResult({
         success: false,
         message: 'Ticket not found',
@@ -77,10 +95,10 @@ const handleScanSuccess = async (ticketId) => {
       ticket: { ...ticket, checkedIn: true },
       ticketId
     });
-    toast.success('✅ Ticket validated successfully!');
+    toast.success(' Ticket validated successfully!');
     
   } catch (error) {
-    console.error('❌ Error processing ticket:', error);
+    console.error(' Error processing ticket:', error);
     setScanResult({
       success: false,
       message: error.message || 'Failed to validate ticket',
@@ -221,7 +239,7 @@ const handleScanSuccess = async (ticketId) => {
             {/* Actions */}
             <div className="flex gap-3">
               <Button onClick={resetScan} variant="outline" className="flex-1">
-                Scan Another
+                Back
               </Button>
               <Button onClick={() => setIsScanning(true)} className="flex-1">
                 <Scan size={16} className="mr-2" />

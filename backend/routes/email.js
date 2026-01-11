@@ -1,16 +1,15 @@
-// backend/routes/email.js - Updated with proper ticket email endpoint
 const express = require('express');
 const router = express.Router();
-const { sendTicketEmail, sendWelcomeEmail, sendPasswordResetEmail, checkEmailService } = require('../services/emailService');
+const { sendWelcomeEmail, sendTicketEmail } = require('../services/emailService');
+const { generateTicketPDF } = require('../services/pdfService');
 
 // Health check route
 router.get('/health', async (req, res) => {
   try {
-    const healthStatus = await checkEmailService();
     res.json({
       success: true,
-      message: 'Email service health check',
-      ...healthStatus
+      message: 'Email service is running',
+      timestamp: new Date().toISOString()
     });
   } catch (error) {
     res.status(500).json({
@@ -21,13 +20,13 @@ router.get('/health', async (req, res) => {
   }
 });
 
-// Send ticket email - THIS IS WHAT YOUR FRONTEND CALLS
+// Send ticket email with PDF
 router.post('/send-ticket', async (req, res) => {
   try {
-    console.log('📧 Ticket email route hit!');
-    console.log('📨 Request body:', JSON.stringify(req.body, null, 2));
+    console.log(' Ticket email route hit!');
+    console.log(' Request body keys:', Object.keys(req.body));
     
-    const { ticketData, recipients } = req.body;
+    const { ticketData, pdfBase64 } = req.body;
     
     // Validate required ticket data
     if (!ticketData) {
@@ -48,15 +47,29 @@ router.post('/send-ticket', async (req, res) => {
       });
     }
     
-    console.log('✅ Ticket data validation passed');
-    console.log('🎫 Sending email for ticket:', ticketData.ticketId);
-    console.log('👤 Recipient:', ticketData.fullName);
-    console.log('🎪 Event:', ticketData.eventName);
+    console.log(' Ticket data validation passed');
+    console.log(' Ticket ID:', ticketData.ticketId);
+    console.log(' Recipient:', ticketData.email);
+    console.log(' Event:', ticketData.eventName);
     
-    // Send the ticket email
-    const result = await sendTicketEmail(ticketData, recipients);
+    let pdfBuffer;
     
-    console.log('✅ Ticket email sent successfully:', result);
+    // Use provided PDF if available, otherwise generate simple one
+    if (pdfBase64) {
+      console.log(' Using provided PDF from frontend');
+      pdfBuffer = Buffer.from(pdfBase64, 'base64');
+    } else {
+      console.log(' Generating fallback PDF');
+      const { generateTicketPDF } = require('../services/pdfService');
+      pdfBuffer = await generateTicketPDF(ticketData);
+    }
+    
+    console.log(' PDF ready, sending email...');
+    
+    // Send the ticket email with PDF
+    const result = await sendTicketEmail(ticketData.email, ticketData, pdfBuffer);
+    
+    console.log(' Ticket email sent successfully');
     
     res.json({
       success: true,
@@ -65,7 +78,7 @@ router.post('/send-ticket', async (req, res) => {
     });
     
   } catch (error) {
-    console.error('❌ Error sending ticket email:', error);
+    console.error(' Error sending ticket email:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to send ticket email',
@@ -74,10 +87,42 @@ router.post('/send-ticket', async (req, res) => {
   }
 });
 
-// Simple test email route (keep for testing)
+// Send welcome email
+router.post('/send-welcome', async (req, res) => {
+  try {
+    console.log(' Welcome email route hit!');
+    const { email, name } = req.body;
+    
+    if (!email || !name) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email and name are required'
+      });
+    }
+    
+    console.log(' Sending welcome email to:', email);
+    const result = await sendWelcomeEmail(email, name);
+    
+    res.json({
+      success: true,
+      message: 'Welcome email sent successfully',
+      data: result
+    });
+    
+  } catch (error) {
+    console.error(' Error sending welcome email:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to send welcome email',
+      error: error.message
+    });
+  }
+});
+
+// Test email route (for quick testing)
 router.post('/test', async (req, res) => {
   try {
-    console.log('🧪 Test email route hit!');
+    console.log(' Test email route hit!');
     
     const { email } = req.body;
     
@@ -93,14 +138,20 @@ router.post('/test', async (req, res) => {
       ticketId: 'TEST-' + Date.now(),
       fullName: 'Test User',
       email: email,
-      eventName: 'SendGrid Test Event',
+      eventName: 'Test Event',
       eventDate: new Date().toISOString().split('T')[0],
+      eventTime: '14:00',
       location: 'Dallas, TX',
       ticketType: 'Standard'
     };
     
-    console.log('🧪 Sending test ticket email to:', email);
-    const result = await sendTicketEmail(testTicketData);
+    console.log(' Sending test ticket email to:', email);
+    
+    // Generate PDF
+    const pdfBuffer = await generateTicketPDF(testTicketData);
+    
+    // Send email
+    const result = await sendTicketEmail(email, testTicketData, pdfBuffer);
     
     res.json({
       success: true,
@@ -109,70 +160,10 @@ router.post('/test', async (req, res) => {
     });
     
   } catch (error) {
-    console.error('❌ Test email error:', error);
+    console.error(' Test email error:', error);
     res.status(500).json({
       success: false,
       message: 'Test email failed',
-      error: error.message
-    });
-  }
-});
-
-// Send welcome email
-router.post('/welcome', async (req, res) => {
-  try {
-    const { userData } = req.body;
-    
-    if (!userData || !userData.email || !userData.fullName) {
-      return res.status(400).json({
-        success: false,
-        message: 'User data with email and fullName is required'
-      });
-    }
-    
-    const result = await sendWelcomeEmail(userData);
-    
-    res.json({
-      success: true,
-      message: 'Welcome email sent successfully',
-      data: result
-    });
-    
-  } catch (error) {
-    console.error('❌ Error sending welcome email:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to send welcome email',
-      error: error.message
-    });
-  }
-});
-
-// Send password reset email
-router.post('/reset-password', async (req, res) => {
-  try {
-    const { email, resetToken } = req.body;
-    
-    if (!email || !resetToken) {
-      return res.status(400).json({
-        success: false,
-        message: 'Email and reset token are required'
-      });
-    }
-    
-    const result = await sendPasswordResetEmail(email, resetToken);
-    
-    res.json({
-      success: true,
-      message: 'Password reset email sent successfully',
-      data: result
-    });
-    
-  } catch (error) {
-    console.error('❌ Error sending password reset email:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to send password reset email',
       error: error.message
     });
   }
