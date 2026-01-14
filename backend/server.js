@@ -91,7 +91,7 @@ app.get('/health', (req, res) => {
     status: 'OK', 
     message: 'TicketUnify Backend is running',
     timestamp: new Date().toISOString(),
-    version: '1.0.0'
+    version: '1.0.1'
   });
 });
 
