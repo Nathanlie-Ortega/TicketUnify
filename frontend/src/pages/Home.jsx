@@ -1,8 +1,7 @@
 // src/pages/Home.jsx - UPDATED: Require signup before ticket creation
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { collection, addDoc } from 'firebase/firestore';
-import { db } from '../utils/firebase';
+import { doc, setDoc, getDoc, collection, addDoc } from 'firebase/firestore';import { db } from '../utils/firebase';
 import TicketForm from '../components/TicketForm';
 import TicketPreview from '../components/TicketPreview';
 import { useAuth } from '../contexts/AuthContext';
@@ -11,7 +10,6 @@ import toast from 'react-hot-toast';
 import { api } from '../utils/api';
 import { generateTicketPDFBuffer } from '../utils/pdfHelper';
 import html2canvas from 'html2canvas';
-import { doc, setDoc, getDoc, collection, addDoc } from 'firebase/firestore';
 
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements } from '@stripe/react-stripe-js';
