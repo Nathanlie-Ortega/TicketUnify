@@ -11,6 +11,7 @@ import toast from 'react-hot-toast';
 import { api } from '../utils/api';
 import { generateTicketPDFBuffer } from '../utils/pdfHelper';
 import html2canvas from 'html2canvas';
+import { doc, setDoc, getDoc, collection, addDoc } from 'firebase/firestore';
 
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements } from '@stripe/react-stripe-js';
@@ -262,8 +263,19 @@ export default function Home() {
     setError(null);
     setEmailStatus('');
     
-    const ticketId = generateTicketId();
-    
+    // Generate unique ticket ID and check if it exists
+    let ticketId = generateTicketId();
+    let ticketRef = doc(db, 'tickets', ticketId);
+    let ticketSnap = await getDoc(ticketRef);
+
+    // If ticket exists, generate a new ID
+    while (ticketSnap.exists()) {
+      console.log(' Ticket ID collision, generating new ID...');
+      ticketId = generateTicketId();
+      ticketRef = doc(db, 'tickets', ticketId);
+      ticketSnap = await getDoc(ticketRef);
+    }
+
     const finalTicketData = {
       ticketId: ticketId,
       fullName: ticketData.fullName,
