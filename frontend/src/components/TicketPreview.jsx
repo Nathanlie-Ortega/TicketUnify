@@ -58,13 +58,21 @@ React.useEffect(() => {
 
   React.useEffect(() => {
     if (avatarFile) {
+      // Priority 1: Use File object (when creating new ticket)
       const url = URL.createObjectURL(avatarFile);
       setAvatarPreview(url);
       return () => URL.revokeObjectURL(url);
+    } else if (ticketData?.avatarUrl) {
+      // Priority 2: Use base64 from ticket data (when viewing saved ticket)
+      console.log('📸 Using avatarUrl from ticket data');
+      setAvatarPreview(ticketData.avatarUrl);
     } else {
+      // Priority 3: No avatar
       setAvatarPreview('');
     }
-  }, [avatarFile]);
+  }, [avatarFile, ticketData?.avatarUrl]);
+
+
 
   const formatDate = (dateString) => {
     if (!dateString) return 'Event Date';
@@ -79,16 +87,23 @@ React.useEffect(() => {
   };
 
   const formatTime = (timeString) => {
-    if (!timeString) return 'Event Time';
+    console.log(' formatTime called with:', timeString);
+    console.log(' Full ticketData:', ticketData);
+    
+    if (!timeString) {
+      console.warn(' No timeString provided!');
+      return 'Event Time';
+    }
     try {
-      // Convert 24-hour time to 12-hour format with AM/PM
       const [hours, minutes] = timeString.split(':');
       const hour = parseInt(hours, 10);
       const ampm = hour >= 12 ? 'PM' : 'AM';
       const displayHour = hour % 12 || 12;
-      return `${displayHour}:${minutes} ${ampm}`;
+      const formatted = `${displayHour}:${minutes} ${ampm}`;
+      console.log(' Formatted time:', formatted);
+      return formatted;
     } catch (error) {
-      console.error('Time formatting error:', error);
+      console.error(' Time formatting error:', error);
       return timeString;
     }
   };
@@ -214,6 +229,8 @@ React.useEffect(() => {
                 </div>
               )}
             </div>
+
+            
           </div>
 
           {/* Attendee Info */}

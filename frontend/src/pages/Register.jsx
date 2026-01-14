@@ -228,18 +228,6 @@ export default function Register() {
             </button>
           </form>
 
-          <div className="mt-6 text-center">
-            <p className="text-sm text-gray-600 dark:text-gray-400">
-              By creating an account, you agree to our{' '}
-              <Link to="/terms" className="text-blue-600 dark:text-blue-400 hover:underline">
-                Terms of Service
-              </Link>{' '}
-              and{' '}
-              <Link to="/privacy" className="text-blue-600 dark:text-blue-400 hover:underline">
-                Privacy Policy
-              </Link>
-            </p>
-          </div>
 
           <div className="mt-6 text-center">
             <p className="text-sm text-gray-600 dark:text-gray-400">

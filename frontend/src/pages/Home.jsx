@@ -52,6 +52,8 @@ export default function Home() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState(null);
   const [emailStatus, setEmailStatus] = useState('');
+  const [isProcessingTicket, setIsProcessingTicket] = useState(false);
+
   
   const { currentUser } = useAuth();
   const { addTicket } = useTickets();
@@ -73,50 +75,59 @@ export default function Home() {
 
 
 
-// Handle post-signup ticket creation
-useEffect(() => {
-  console.log('useEffect triggered!');
-  console.log('currentUser:', currentUser);
-  
-  const handlePostSignupTicket = async () => {
-    // Check sessionStorage for pending ticket
+  // Handle post-signup ticket creation - ONE TIME ONLY
+  useEffect(() => {
+    if (!currentUser) return;
+
     const pendingDataStr = sessionStorage.getItem('pendingTicketData');
     
-    if (pendingDataStr && currentUser) {
-      console.log('Found pending ticket and user is logged in!');
-      
+    // Most important guard: if no pending data anymore → exit immediately
+    if (!pendingDataStr) {
+      console.log('No pending ticket data found → skipping');
+      return;
+    }
+
+    // Extra safety: process only once per mount + user change
+    // We use an IIFE so we can await inside
+    (async () => {
+      console.log('🔒 Attempting to process pending ticket...');
+
+      // FINAL LOCK - remove pending data BEFORE anything else
+      // This prevents any parallel run from seeing it
+      sessionStorage.removeItem('pendingTicketData');
+
       try {
         const pendingData = JSON.parse(pendingDataStr);
-        console.log('Pending ticket data:', pendingData);
-        
-        // Clear sessionStorage FIRST to prevent re-triggering
-        sessionStorage.removeItem('pendingTicketData');
-        
-        const { ticketData } = pendingData;
-        
-        // Check if Premium or Standard
-        if (ticketData.ticketType === 'Premium') {
-          console.log('Premium ticket - showing payment modal...');
-          await handlePremiumTicket(ticketData, null);
-        } else {
-          console.log('Standard ticket - creating directly...');
-          await createTicketAfterPayment(ticketData, null);
+        console.log('Processing pending ticket:', pendingData);
+
+        let avatarFile = null;
+        if (pendingData.avatarFile) {
+          console.log('Converting base64 back to File...');
+          const response = await fetch(pendingData.avatarFile);
+          const blob = await response.blob();
+          avatarFile = new File([blob], 'avatar.jpg', { type: blob.type || 'image/jpeg' });
+          console.log('Avatar File recovered');
         }
+
+        const { ticketData } = pendingData;
+
+        if (ticketData.ticketType === 'Premium') {
+          console.log('→ Premium ticket after signup');
+          await handlePremiumTicket(ticketData, avatarFile);
+        } else {
+          console.log('→ Standard ticket after signup');
+          await createTicketAfterPayment(ticketData, avatarFile);
+        }
+
+        toast.success('Your ticket has been created successfully!');
         
       } catch (error) {
         console.error('Error processing pending ticket:', error);
-        toast.error('Failed to create ticket: ' + error.message);
-        sessionStorage.removeItem('pendingTicketData'); // Clean up on error
+        toast.error('Failed to create pending ticket: ' + (error.message || 'Unknown error'));
+        // Optional: you can put pendingDataStr back if you want retry capability
       }
-    } else if (pendingDataStr && !currentUser) {
-      console.log('Pending ticket found but waiting for user to load...');
-    } else {
-      console.log('ℹNo pending ticket data');
-    }
-  };
-
-  handlePostSignupTicket();
-}, [currentUser]);
+    })();
+  }, [currentUser]); // ← keep dependency, but the removeItem makes it safe
 
 
 
@@ -131,18 +142,50 @@ useEffect(() => {
       console.log('Current user:', currentUser ? currentUser.uid : 'NOT LOGGED IN');
       
 
+
+
+
       if (!currentUser) {
-        
-        // Store ticket data in sessionStorage so we can retrieve it after signup
-        sessionStorage.setItem('pendingTicketData', JSON.stringify({
+        console.log('User not logged in → preparing pending ticket data...');
+
+        let pendingData = {
           ticketData,
-          avatarFile: avatarFile ? 'HAS_AVATAR' : null // Can't store File object
-        }));
-                
-        // Redirect to register page
+          avatarFile: null
+        };
+
+        // Handle avatar if one was uploaded
+        if (avatarFile) {
+          try {
+            console.log('Converting avatar to base64 for session storage...');
+            
+            const avatarBase64 = await new Promise((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onloadend = () => resolve(reader.result);
+              reader.onerror = () => reject(new Error("Failed to read avatar file"));
+              reader.readAsDataURL(avatarFile);
+            });
+
+            pendingData.avatarFile = avatarBase64;
+            console.log('Avatar successfully converted to base64');
+            
+          } catch (err) {
+            console.warn('Failed to convert avatar to base64, continuing without it', err);
+            // We continue anyway — better to create ticket without avatar than block the flow
+          }
+        }
+
+        // Store and redirect
+        sessionStorage.setItem('pendingTicketData', JSON.stringify(pendingData));
+        console.log('Pending ticket data stored in sessionStorage');
+        
         navigate('/register');
         return;
       }
+
+
+
+
+
 
       
       // Check ticket type
@@ -206,8 +249,14 @@ useEffect(() => {
   };
 
   // Create ticket in Firestore (called after payment or directly for Standard)
-  const createTicketAfterPayment = async (ticketData, avatarFile) => {
-  try {
+    const createTicketAfterPayment = async (ticketData, avatarFile) => {
+  // Prevent duplicate calls
+    if (isSubmitting) {
+      console.log(' Already creating ticket, skipping...');
+      return;
+    }
+  
+    try {
     console.log(' Creating ticket in Firestore...');
     setIsSubmitting(true);
     setError(null);
@@ -233,6 +282,19 @@ useEffect(() => {
       userName: ticketData.fullName,
     };
 
+
+    // Convert avatar to base64 and add to ticket data
+    if (avatarFile) {
+      const reader = new FileReader();
+      const avatarBase64 = await new Promise((resolve, reject) => {
+        reader.onloadend = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(avatarFile);
+      });
+      finalTicketData.avatarUrl = avatarBase64;
+      console.log(' Avatar converted to base64 and added to ticket');
+    }
+
     // Save to Firestore
     const docRef = await addDoc(collection(db, 'tickets'), finalTicketData);
     finalTicketData.id = docRef.id;
@@ -241,13 +303,20 @@ useEffect(() => {
     console.log(' Ticket ID:', finalTicketData.ticketId);
     console.log(' Full ticket data:', finalTicketData);
 
-    // Update state
     setCreatedTicket(finalTicketData);
-    setAvatarFile(avatarFile);
-    
+    if (avatarFile) {
+      setAvatarFile(avatarFile);
+      console.log(' Avatar file set in state');
+    } else if (finalTicketData.avatarUrl) {
+      
+      console.log(' Using avatarUrl from ticket data');
+    }
+
     // Add to context
     addTicket(finalTicketData);
 
+
+    // Show success notification immediately
     toast.success('Ticket created successfully!');
 
 
@@ -457,7 +526,7 @@ useEffect(() => {
           <span className="text-blue-600 dark:text-blue-400"> Studio</span>
         </h1>
         <p className="text-lg text-gray-600 dark:text-gray-300 max-w-2xl mx-auto mb-8">
-          Create professional tickets with QR codes, email delivery, and validation. 
+          Create tickets with QR codes, email delivery, and validation. 
           Perfect for events, workshops, and conferences.
         </p>
         

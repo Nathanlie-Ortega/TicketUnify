@@ -1,9 +1,10 @@
 // src/App.jsx
-import React from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import React, { useEffect } from 'react';
+import { BrowserRouter as Router, Routes, Route, useNavigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
+import toast from 'react-hot-toast';
 import { ThemeProvider } from './contexts/ThemeContext';
-import { AuthProvider } from './contexts/AuthContext';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { TicketProvider } from './contexts/TicketContext';
 import Navbar from './components/layout/Navbar';
 import Footer from './components/layout/Footer';
@@ -13,11 +14,53 @@ import AdminDashboard from './pages/AdminDashboard';
 import Scanner from './pages/Scanner';
 import Login from './pages/Login';
 import Register from './pages/Register';
-import TicketValidation from './pages/TicketValidation'; // NEW: Import validation page
+import TicketValidation from './pages/TicketValidation';
 import NotFound from './pages/NotFound';
 import ProtectedRoute from './components/ProtectedRoute';
 
 function AppContent() {
+  const { currentUser, logout } = useAuth();
+  const navigate = useNavigate();
+
+  // Auto-logout when password is reset (detected when user returns to tab)
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const handleVisibilityChange = async () => {
+      if (document.visibilityState === 'visible') {
+        try {
+          // Check if token is still valid (will fail if password was reset)
+          await currentUser.getIdToken(true);
+          console.log(' Session valid');
+        } catch (error) {
+          console.log(' Session expired - password was reset');
+          
+          // Show friendly message
+          toast.success('Your password was changed. Please log in again with your new password.', {
+            duration: 5000,
+            icon: '',
+          });
+          
+          // Wait 2 seconds, then logout
+          setTimeout(async () => {
+            await logout();
+            navigate('/login');
+          }, 2000);
+        }
+      }
+    };
+
+    // Check when page becomes visible (user returns to tab)
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    // Also check immediately when component mounts
+    handleVisibilityChange();
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [currentUser, logout, navigate]);
+
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex flex-col transition-colors" style={{ backgroundImage: 'none' }}>
       <Navbar />
@@ -29,7 +72,7 @@ function AppContent() {
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
           
-          {/* NEW: Public Validation Route - Anyone can validate tickets via QR scan */}
+          {/* Public Validation Route - Anyone can validate tickets via QR scan */}
           <Route path="/validate/:ticketId" element={<TicketValidation />} />
           
           {/* Protected Routes */}

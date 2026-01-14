@@ -314,217 +314,247 @@ export default function Dashboard() {
   };
 
 
-  // Enhanced render ticket for download with profile picture support
-  const renderTicketForDownload = async (ticket) => {
-    const qrCodeUrl = await generateTicketQR(ticket.ticketId);
-    const avatarUrl = ticketAvatars[ticket.id]; // Get ticket-specific avatar
-    
-    // Create a temporary container for the ticket
-    const container = document.createElement('div');
-    container.style.position = 'absolute';
-    container.style.left = '-9999px';
-    container.style.top = '-9999px';
-    container.innerHTML = `
-      <div style="
-        width: 560px; 
-        height: 400px; 
-        background: linear-gradient(135deg, #3b82f6, #1d4ed8, #7c3aed);
-        border-radius: 16px;
-        position: relative;
-        overflow: hidden;
-        font-family: system-ui, -apple-system, sans-serif;
-      ">
-        <!-- Background Pattern -->
+    // Enhanced render ticket for download with profile picture support
+    const renderTicketForDownload = async (ticket) => {
+      const qrCodeUrl = await generateTicketQR(ticket.ticketId);
+      const avatarUrl = ticketAvatars[ticket.id]; // Get ticket-specific avatar
+      
+      // Format time helper function
+      const formatTime = (timeString) => {
+        if (!timeString) return 'Event Time';
+        try {
+          const [hours, minutes] = timeString.split(':');
+          const hour = parseInt(hours, 10);
+          const ampm = hour >= 12 ? 'PM' : 'AM';
+          const displayHour = hour % 12 || 12;
+          return `${displayHour}:${minutes} ${ampm}`;
+        } catch (error) {
+          return timeString;
+        }
+      };
+      
+      // Create a temporary container for the ticket
+      const container = document.createElement('div');
+      container.style.position = 'absolute';
+      container.style.left = '-9999px';
+      container.style.top = '-9999px';
+      container.innerHTML = `
         <div style="
-          position: absolute;
-          inset: 0;
-          opacity: 0.2;
-        ">
-          <svg width="100%" height="100%" viewBox="0 0 100 100">
-            <defs>
-              <pattern id="grid" width="10" height="10" patternUnits="userSpaceOnUse">
-                <path d="M 10 0 L 0 0 0 10" fill="none" stroke="white" stroke-width="0.5"/>
-              </pattern>
-            </defs>
-            <rect width="100%" height="100%" fill="url(#grid)" />
-          </svg>
-        </div>
-
-        <!-- Main Content -->
-        <div style="
+          width: 560px; 
+          height: 400px; 
+          background: linear-gradient(135deg, #3b82f6, #1d4ed8, #7c3aed);
+          border-radius: 16px;
           position: relative;
-          padding: 24px;
-          height: 100%;
-          display: flex;
-          flex-direction: column;
-          color: white;
+          overflow: hidden;
+          font-family: system-ui, -apple-system, sans-serif;
         ">
-          <!-- Header -->
+          <!-- Background Pattern -->
           <div style="
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            margin-bottom: 16px;
+            position: absolute;
+            inset: 0;
+            opacity: 0.2;
           ">
-            <div style="flex: 1;">
-              <h2 style="
-                font-size: 18px;
-                font-weight: bold;
-                margin: 0 0 4px 0;
-                line-height: 1.2;
-              ">${ticket.eventName}</h2>
+            <svg width="100%" height="100%" viewBox="0 0 100 100">
+              <defs>
+                <pattern id="grid" width="10" height="10" patternUnits="userSpaceOnUse">
+                  <path d="M 10 0 L 0 0 0 10" fill="none" stroke="white" stroke-width="0.5"/>
+                </pattern>
+              </defs>
+              <rect width="100%" height="100%" fill="url(#grid)" />
+            </svg>
+          </div>
+
+          <!-- Main Content -->
+          <div style="
+            position: relative;
+            padding: 24px;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            color: white;
+          ">
+            <!-- Header -->
+            <div style="
+              display: flex;
+              justify-content: space-between;
+              align-items: flex-start;
+              margin-bottom: 16px;
+            ">
+              <div style="flex: 1;">
+                <h2 style="
+                  font-size: 18px;
+                  font-weight: bold;
+                  margin: 0 0 4px 0;
+                  line-height: 1.2;
+                ">${ticket.eventName}</h2>
+                <div style="
+                  color: rgba(191, 219, 254, 1);
+                  font-size: 14px;
+                  display: flex;
+                  align-items: center;
+                  margin-bottom: 4px;
+                ">
+                  📅 ${formatDateForTicket(ticket.eventDate)}
+                </div>
+                <div style="
+                  color: rgba(191, 219, 254, 1);
+                  font-size: 14px;
+                  display: flex;
+                  align-items: center;
+                ">
+                  🕐 ${formatTime(ticket.eventTime)}
+                </div>
+              </div>
+              
+              <!-- Avatar with profile picture support -->
+              <div style="
+                width: 64px;
+                height: 64px;
+                border-radius: 50%;
+                border: 3px solid rgba(255, 255, 255, 0.2);
+                background: rgba(255, 255, 255, 0.1);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                margin-left: 16px;
+                overflow: hidden;
+              ">
+                ${avatarUrl ? `
+                  <img 
+                    src="${avatarUrl}" 
+                    alt="Profile" 
+                    style="
+                      width: 100%; 
+                      height: 100%; 
+                      object-fit: cover;
+                      border-radius: 50%;
+                    " 
+                  />
+                ` : '👤'}
+              </div>
+            </div>
+
+            <!-- Attendee Info -->
+            <div style="flex: 1; margin-bottom: 16px;">
+              <div style="margin-bottom: 12px;">
+                <p style="
+                  color: rgba(191, 219, 254, 1);
+                  font-size: 12px;
+                  text-transform: uppercase;
+                  letter-spacing: 0.05em;
+                  margin: 0 0 4px 0;
+                ">ATTENDEE</p>
+                <p style="
+                  font-size: 18px;
+                  font-weight: 600;
+                  margin: 0;
+                ">${ticket.fullName}</p>
+              </div>
+
+              <div style="
+                color: rgba(191, 219, 254, 1);
+                font-size: 14px;
+                margin-bottom: 8px;
+                display: flex;
+                align-items: center;
+              ">
+                📍 ${ticket.location}
+              </div>
+
               <div style="
                 color: rgba(191, 219, 254, 1);
                 font-size: 14px;
                 display: flex;
                 align-items: center;
               ">
-                📅 ${formatDateForTicket(ticket.eventDate)}
+                🎟️ ${ticket.ticketType} Ticket
               </div>
             </div>
-            
-            <!-- Avatar with profile picture support -->
+
+            <!-- QR Code Section -->
             <div style="
-              width: 64px;
-              height: 64px;
-              border-radius: 50%;
-              border: 3px solid rgba(255, 255, 255, 0.2);
-              background: rgba(255, 255, 255, 0.1);
+              padding-top: 16px;
+              border-top: 1px solid rgba(255, 255, 255, 0.2);
               display: flex;
+              justify-content: space-between;
               align-items: center;
-              justify-content: center;
-              margin-left: 16px;
-              overflow: hidden;
             ">
-              ${avatarUrl ? `
-                <img 
-                  src="${avatarUrl}" 
-                  alt="Profile" 
-                  style="
-                    width: 100%; 
-                    height: 100%; 
-                    object-fit: cover;
-                    border-radius: 50%;
-                  " 
-                />
-              ` : '👤'}
+              <div style="flex: 1;">
+                <p style="
+                  color: rgba(191, 219, 254, 1);
+                  font-size: 12px;
+                  text-transform: uppercase;
+                  letter-spacing: 0.05em;
+                  margin: 0 0 4px 0;
+                ">TICKET ID</p>
+                <p style="
+                  font-family: monospace;
+                  font-size: 14px;
+                  margin: 0;
+                ">#${ticket.ticketId}</p>
+              </div>
+              
+              ${qrCodeUrl ? `
+                <div style="
+                  background: white;
+                  padding: 8px;
+                  border-radius: 8px;
+                  margin-left: 16px;
+                ">
+                  <img src="${qrCodeUrl}" alt="QR Code" style="width: 64px; height: 64px; display: block;" />
+                </div>
+              ` : ''}
             </div>
           </div>
 
-          <!-- Attendee Info -->
-          <div style="flex: 1; margin-bottom: 16px;">
-            <div style="margin-bottom: 12px;">
-              <p style="
-                color: rgba(191, 219, 254, 1);
-                font-size: 12px;
-                text-transform: uppercase;
-                letter-spacing: 0.05em;
-                margin: 0 0 4px 0;
-              ">ATTENDEE</p>
-              <p style="
-                font-size: 18px;
-                font-weight: 600;
-                margin: 0;
-              ">${ticket.fullName}</p>
-            </div>
-
-            <div style="
-              color: rgba(191, 219, 254, 1);
-              font-size: 14px;
-              margin-bottom: 8px;
-              display: flex;
-              align-items: center;
-            ">
-              📍 ${ticket.location}
-            </div>
-
-            <div style="
-              color: rgba(191, 219, 254, 1);
-              font-size: 14px;
-              display: flex;
-              align-items: center;
-            ">
-               ${ticket.ticketType} Ticket
-            </div>
-          </div>
-
-          <!-- QR Code Section -->
+          <!-- Decorative Elements -->
           <div style="
-            padding-top: 16px;
-            border-top: 1px solid rgba(255, 255, 255, 0.2);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-          ">
-            <div style="flex: 1;">
-              <p style="
-                color: rgba(191, 219, 254, 1);
-                font-size: 12px;
-                text-transform: uppercase;
-                letter-spacing: 0.05em;
-                margin: 0 0 4px 0;
-              ">TICKET ID</p>
-              <p style="
-                font-family: monospace;
-                font-size: 14px;
-                margin: 0;
-              ">#${ticket.ticketId}</p>
-            </div>
-            
-            ${qrCodeUrl ? `
-              <div style="
-                background: white;
-                padding: 8px;
-                border-radius: 8px;
-                margin-left: 16px;
-              ">
-                <img src="${qrCodeUrl}" alt="QR Code" style="width: 64px; height: 64px; display: block;" />
-              </div>
-            ` : ''}
-          </div>
+            position: absolute;
+            top: 50%;
+            left: -16px;
+            width: 32px;
+            height: 32px;
+            background: #f9fafb;
+            border-radius: 50%;
+            transform: translateY(-50%);
+          "></div>
+          <div style="
+            position: absolute;
+            top: 50%;
+            right: -16px;
+            width: 32px;
+            height: 32px;
+            background: #f9fafb;
+            border-radius: 50%;
+            transform: translateY(-50%);
+          "></div>
         </div>
+      `;
 
-        <!-- Decorative Elements -->
-        <div style="
-          position: absolute;
-          top: 50%;
-          left: -16px;
-          width: 32px;
-          height: 32px;
-          background: #f9fafb;
-          border-radius: 50%;
-          transform: translateY(-50%);
-        "></div>
-        <div style="
-          position: absolute;
-          top: 50%;
-          right: -16px;
-          width: 32px;
-          height: 32px;
-          background: #f9fafb;
-          border-radius: 50%;
-          transform: translateY(-50%);
-        "></div>
-      </div>
-    `;
-
-    document.body.appendChild(container);
-    
-    try {
-      const canvas = await html2canvas(container.firstElementChild, {
-        scale: 2,
-        useCORS: true,
-        allowTaint: true,
-        backgroundColor: '#ffffff'
-      });
+      document.body.appendChild(container);
       
-      document.body.removeChild(container);
-      return canvas;
-    } catch (error) {
-      document.body.removeChild(container);
-      throw error;
-    }
-  };
+      try {
+        const canvas = await html2canvas(container.firstElementChild, {
+          scale: 2,
+          useCORS: true,
+          allowTaint: true,
+          backgroundColor: '#ffffff'
+        });
+        
+        document.body.removeChild(container);
+        return canvas;
+      } catch (error) {
+        document.body.removeChild(container);
+        throw error;
+      }
+    };
+
+
+
+
+
+
+
 
   // Download as PDF
   const downloadTicketAsPDF = async (ticket) => {

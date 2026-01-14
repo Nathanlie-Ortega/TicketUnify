@@ -186,10 +186,41 @@ export default function Login() {
             </div>
 
             <div className="text-sm">
-              <a href="#" className="text-blue-600 dark:text-blue-400 hover:text-blue-500 dark:hover:text-blue-300">
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!formData.email) {
+                    toast.error('Please enter your email address first');
+                    return;
+                  }
+                  
+                  try {
+                    const { sendPasswordResetEmail } = await import('firebase/auth');
+                    const { auth } = await import('../utils/firebase');
+                    
+                    await sendPasswordResetEmail(auth, formData.email);
+                    
+                    toast.success(
+                      'Password reset email sent! Check your inbox (and spam folder).',
+                      { duration: 6000 }
+                    );
+                  } catch (error) {
+                    console.error('Password reset error:', error);
+                    
+                    if (error.code === 'auth/user-not-found') {
+                      toast.error('No account found with this email address');
+                    } else {
+                      toast.error('Failed to send reset email. Please try again.');
+                    }
+                  }
+                }}
+                className="text-blue-600 dark:text-blue-400 hover:text-blue-500 dark:hover:text-blue-300 hover:underline"
+              >
                 Forgot password?
-              </a>
+              </button>
             </div>
+
+
           </div>
 
           <Button
