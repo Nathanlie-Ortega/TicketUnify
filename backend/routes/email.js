@@ -103,6 +103,10 @@ router.post('/send-welcome', async (req, res) => {
     console.log(' Sending welcome email to:', email);
     const result = await sendWelcomeEmail(email, name);
     
+    // Add 5-second delay before responding
+    console.log(' Waiting 5 seconds to space out emails...');
+    await new Promise(resolve => setTimeout(resolve, 5000));
+    
     res.json({
       success: true,
       message: 'Welcome email sent successfully',
