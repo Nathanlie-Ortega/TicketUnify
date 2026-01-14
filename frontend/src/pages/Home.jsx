@@ -398,7 +398,7 @@ export default function Home() {
           console.error(' PDF generation failed:', pdfError);
         }
 
-        const ticketResponse = await fetch('http://localhost:5000/api/email/send-ticket', {
+        const ticketResponse = await fetch(`${import.meta.env.VITE_API_URL}/api/email/send-ticket`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -445,7 +445,7 @@ export default function Home() {
           }
           
           // Send to account email
-          const accountEmailResponse = await fetch('http://localhost:5000/api/email/send-ticket', {
+          const accountEmailResponse = await fetch(`${import.meta.env.VITE_API_URL}/api/email/send-ticket`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -455,7 +455,7 @@ export default function Home() {
           });
           
           // Send to form email
-          const formEmailResponse = await fetch('http://localhost:5000/api/email/send-ticket', {
+          const formEmailResponse = await fetch(`${import.meta.env.VITE_API_URL}/api/email/send-ticket`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
