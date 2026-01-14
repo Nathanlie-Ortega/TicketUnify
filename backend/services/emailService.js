@@ -1,34 +1,16 @@
-const nodemailer = require('nodemailer');
+const sgMail = require('@sendgrid/mail');
 
-// Create email transporter
-const createTransporter = () => {
-  return nodemailer.createTransport({
-    host: 'smtp.gmail.com',
-    port: 587,
-    secure: false, 
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASSWORD
-    },
-    tls: {
-      rejectUnauthorized: false
-    },
-    connectionTimeout: 10000,
-    greetingTimeout: 10000,
-    socketTimeout: 30000
-  });
-};
+// Initialize SendGrid
+sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
-// Send Welcome Email (for new users only)
+// Send Welcome Email
 const sendWelcomeEmail = async (userEmail, userName) => {
   try {
-    console.log('📧 Sending welcome email to:', userEmail);
+    console.log(' Sending welcome email to:', userEmail);
 
-    const transporter = createTransporter();
-
-    const mailOptions = {
-      from: process.env.EMAIL_FROM,
+    const msg = {
       to: userEmail,
+      from: process.env.EMAIL_FROM || 'nathanilieortega.dev@gmail.com',
       subject: 'Welcome to TicketUnify! 🎉',
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
@@ -66,28 +48,29 @@ const sendWelcomeEmail = async (userEmail, userName) => {
       `
     };
 
-    await transporter.sendMail(mailOptions);
-    console.log('✅ Welcome email sent successfully to:', userEmail);
+    await sgMail.send(msg);
+    console.log(' Welcome email sent successfully');
     return true;
 
   } catch (error) {
-    console.error('❌ Error sending welcome email:', error);
+    console.error(' Error sending welcome email:', error);
+    if (error.response) {
+      console.error('SendGrid error details:', error.response.body);
+    }
     throw error;
   }
 };
 
-// Send Ticket Email with PDF attachment
+// Send Ticket Email with PDF
 const sendTicketEmail = async (recipientEmail, ticketData, pdfBuffer) => {
   try {
-    console.log('📧 Sending ticket email to:', recipientEmail);
+    console.log(' Sending ticket email to:', recipientEmail);
 
-    const transporter = createTransporter();
+    const validationLink = `${process.env.APP_URL || 'https://ticket-unify.vercel.app'}/validate/${ticketData.ticketId}`;
 
-    const validationLink = `${process.env.APP_URL}/validate/${ticketData.ticketId}`;
-
-    const mailOptions = {
-      from: process.env.EMAIL_FROM,
+    const msg = {
       to: recipientEmail,
+      from: process.env.EMAIL_FROM || 'nathanilieortega.dev@gmail.com',
       subject: `Your ${ticketData.eventName} Ticket is Ready! 🎟️`,
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
@@ -105,31 +88,18 @@ const sendTicketEmail = async (recipientEmail, ticketData, pdfBuffer) => {
             <div style="background-color: white; border: 2px solid #e5e7eb; border-radius: 8px; padding: 20px; margin: 20px 0;">
               <h3 style="color: #1f2937; margin-top: 0;">Event Details</h3>
               <p style="margin: 8px 0; color: #374151;"><strong>📅 Date:</strong> ${ticketData.eventDate}</p>
-              <p style="margin: 8px 0; color: #374151;"><strong>🕐 Time:</strong> ${ticketData.eventTime}</p>
+              <p style="margin: 8px 0; color: #374151;"><strong>🕐 Time:</strong> ${ticketData.eventTime || 'TBD'}</p>
               <p style="margin: 8px 0; color: #374151;"><strong>📍 Location:</strong> ${ticketData.location}</p>
               <p style="margin: 8px 0; color: #374151;"><strong>🎫 Ticket ID:</strong> ${ticketData.ticketId}</p>
               <p style="margin: 8px 0; color: #374151;"><strong>💳 Type:</strong> ${ticketData.ticketType}</p>
             </div>
             
-            <p style="font-size: 16px; color: #374151;">
-              Your ticket PDF is attached to this email.
-            </p>
+            ${pdfBuffer ? '<p style="font-size: 16px; color: #374151;">Your ticket PDF is attached to this email.</p>' : ''}
             
             <div style="text-align: center; margin: 30px 0;">
               <a href="${validationLink}" style="display: inline-block; background-color: #2563eb; color: white; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: bold;">
-                Quick Access - Validate Ticket
+                Validate Ticket
               </a>
-            </div>
-            
-            <p style="font-size: 14px; color: #6b7280; text-align: center;">
-              Or copy this link: <br/>
-              <span style="font-size: 12px; word-break: break-all;">${validationLink}</span>
-            </p>
-            
-            <div style="background-color: #fef3c7; border-left: 4px solid #f59e0b; padding: 12px; margin: 20px 0;">
-              <p style="margin: 0; color: #92400e; font-size: 14px;">
-                <strong>Important:</strong> Please save this email or download the PDF for entry to your event.
-              </p>
             </div>
             
             <p style="font-size: 16px; color: #374151; margin-top: 30px;">
@@ -148,22 +118,30 @@ const sendTicketEmail = async (recipientEmail, ticketData, pdfBuffer) => {
             </p>
           </div>
         </div>
-      `,
-      attachments: [
-        {
-          filename: `ticket-${ticketData.ticketId}.pdf`,
-          content: pdfBuffer,
-          contentType: 'application/pdf'
-        }
-      ]
+      `
     };
 
-    await transporter.sendMail(mailOptions);
-    console.log('✅ Ticket email sent successfully to:', recipientEmail);
+    // Add PDF attachment if provided
+    if (pdfBuffer) {
+      msg.attachments = [
+        {
+          content: pdfBuffer.toString('base64'),
+          filename: `ticket-${ticketData.ticketId}.pdf`,
+          type: 'application/pdf',
+          disposition: 'attachment'
+        }
+      ];
+    }
+
+    await sgMail.send(msg);
+    console.log(' Ticket email sent successfully');
     return true;
 
   } catch (error) {
-    console.error('❌ Error sending ticket email:', error);
+    console.error(' Error sending ticket email:', error);
+    if (error.response) {
+      console.error('SendGrid error details:', error.response.body);
+    }
     throw error;
   }
 };
