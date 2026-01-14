@@ -21,7 +21,7 @@ React.useEffect(() => {
         console.log('🔄 Generating REAL QR for ticket ID:', actualTicketId);
         
         // OPTION 1: For localhost development
-        const validationUrl = `http://localhost:3000/validate/${actualTicketId}`;
+        const validationUrl = `${import.meta.env.VITE_APP_URL || window.location.origin}/validate/${actualTicketId}`;
         
         // OPTION 2: For production (uncomment when deployed)
         // const validationUrl = `https://your-domain.com/validate/${actualTicketId}`;

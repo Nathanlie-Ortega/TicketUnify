@@ -212,7 +212,7 @@ export default function Home() {
       setPendingTicketData({ ticketData, avatarFile });
       
       // Create payment intent via backend
-      const response = await fetch('http://localhost:5000/api/tickets/create-payment-intent', {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/tickets/create-payment-intent`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -351,7 +351,7 @@ export default function Home() {
         setEmailStatus(' Sending welcome email...');
         
         try {
-          const welcomeResponse = await fetch('http://localhost:5000/api/email/send-welcome', {
+          const welcomeResponse = await fetch(`${import.meta.env.VITE_API_URL}/api/email/send-welcome`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({

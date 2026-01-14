@@ -40,7 +40,7 @@ const handleScanSuccess = async (scannedData) => {
     // Extract ticket ID from URL or use as-is
     let ticketId = scannedData;
     
-    // If scanned data is a URL (e.g., http://localhost:3000/validate/TICKET-XXX)
+    // If scanned data is a URL (handles both localhost and production URLs)
     if (scannedData.includes('/validate/')) {
       ticketId = scannedData.split('/validate/')[1];
       console.log(' Extracted ticket ID from URL:', ticketId);
