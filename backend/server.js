@@ -9,9 +9,25 @@ dotenv.config();
 
 const app = express();
 
-// Basic middleware
+// CORS configuration for production
+const allowedOrigins = [
+  'http://localhost:3000',
+  'http://localhost:5173',
+  process.env.FRONTEND_URL, // Railway will use this
+  'https://ticketunify.vercel.app' // Add your Vercel domain
+];
+
 app.use(cors({
-  origin: ['http://localhost:3000', 'http://localhost:5173'], // Add Vite dev server port
+  origin: function(origin, callback) {
+    // Allow requests with no origin (mobile apps, curl, etc)
+    if (!origin) return callback(null, true);
+    
+    if (allowedOrigins.indexOf(origin) === -1) {
+      const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
+      return callback(new Error(msg), false);
+    }
+    return callback(null, true);
+  },
   credentials: true
 }));
 app.use(express.json({ limit: '10mb' })); // Increase limit for base64 images
