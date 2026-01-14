@@ -10,24 +10,25 @@ dotenv.config();
 const app = express();
 
 // CORS configuration for production
-const allowedOrigins = [
-  'http://localhost:3000',
-  'http://localhost:5173',
-  process.env.FRONTEND_URL,
-  'https://ticketunify.vercel.app' // Add your actual Vercel URL here
-];
-
 app.use(cors({
   origin: function(origin, callback) {
-    // Allow requests with no origin (mobile apps, Postman, etc)
+    // Allow requests with no origin (Postman, mobile apps)
     if (!origin) return callback(null, true);
     
-    if (allowedOrigins.indexOf(origin) !== -1) {
-      return callback(null, true);
-    }
+    // Allow localhost
+    if (origin && origin.includes('localhost')) return callback(null, true);
     
-    const msg = 'CORS policy does not allow access from ' + origin;
-    return callback(new Error(msg), false);
+    // Allow any Vercel domain
+    if (origin && origin.includes('.vercel.app')) return callback(null, true);
+    
+    // Allow Render domain
+    if (origin && origin.includes('.onrender.com')) return callback(null, true);
+    
+    // Allow production frontend URL from env
+    if (origin && origin === process.env.FRONTEND_URL) return callback(null, true);
+    
+    console.log(' CORS blocked origin:', origin);
+    return callback(null, true); // TEMPORARILY ALLOW ALL - for debugging
   },
   credentials: true
 }));
